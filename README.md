@@ -107,10 +107,10 @@ Outputs a read-only playbook with:
 ### `install-plugin` — Install the bundled Codex migration plugin
 
 ```bash
-cc2codex install-plugin [--target-dir ~/plugins/cc2codex-migration-assistant] [--marketplace-path ~/.agents/plugins/marketplace.json] [--force]
+cc2codex install-plugin [--target-dir ~/.codex/plugins/cc2codex-migration-assistant] [--marketplace-path ~/.agents/plugins/marketplace.json] [--force]
 ```
 
-Installs the repo’s bundled Codex plugin wrapper and updates the local plugin marketplace entry so the migration assistant can be surfaced inside Codex.
+Installs the repo’s bundled Codex plugin wrapper into the official local Codex plugin path and updates the local plugin marketplace entry so the migration assistant can be surfaced inside Codex.
 
 ### `apply` — Apply a staged migration scope
 

@@ -20,8 +20,8 @@ function defaultMarketplace() {
   return join(homedir(), '.agents', 'plugins', 'marketplace.json');
 }
 
-function defaultPluginInstallDir() {
-  return join(homedir(), 'plugins', MIGRATION_PLUGIN_NAME);
+export function defaultPluginInstallDir() {
+  return join(homedir(), '.codex', 'plugins', MIGRATION_PLUGIN_NAME);
 }
 
 function readJson(filePath) {

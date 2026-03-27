@@ -248,7 +248,7 @@ program
 program
   .command('install-plugin')
   .description('Install the bundled Codex migration plugin into a local plugin directory and marketplace')
-  .option('--target-dir <path>', 'Target plugin directory (default: ~/plugins/cc2codex-migration-assistant)')
+  .option('--target-dir <path>', 'Target plugin directory (default: ~/.codex/plugins/cc2codex-migration-assistant)')
   .option('--marketplace-path <path>', 'Marketplace file to create or update (default: ~/.agents/plugins/marketplace.json)')
   .option('--force', 'Replace an existing installed plugin')
   .action(async (opts) => {

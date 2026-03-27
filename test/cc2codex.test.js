@@ -13,7 +13,7 @@ import { validate } from '../src/validator.js';
 import { buildDoctorReport } from '../src/doctor.js';
 import { buildMigrationGuide } from '../src/guide.js';
 import { runStartFlow } from '../src/start.js';
-import { installMigrationPlugin, MIGRATION_PLUGIN_NAME } from '../src/plugin-installer.js';
+import { installMigrationPlugin, MIGRATION_PLUGIN_NAME, defaultPluginInstallDir } from '../src/plugin-installer.js';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 
@@ -344,6 +344,10 @@ test('install-plugin copies the bundled plugin and updates marketplace', async (
   assert.equal(existsSync(join(pluginTarget, '.codex-plugin', 'plugin.json')), true);
   const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
   assert.ok(marketplace.plugins.some(plugin => plugin.name === MIGRATION_PLUGIN_NAME));
+});
+
+test('install-plugin default target path uses the Codex plugin directory', () => {
+  assert.match(defaultPluginInstallDir(), /\.codex\/plugins\/cc2codex-migration-assistant$/);
 });
 
 test('apply --global writes only global outputs and leaves project instructions untouched', (t) => {
