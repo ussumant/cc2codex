@@ -1,13 +1,14 @@
 {
   "name": "cc2codex",
-  "version": "1.0.0",
-  "description": "Migrate Claude Code setups to OpenAI Codex CLI",
+  "version": "0.2.0",
+  "description": "Beta unofficial migration assistant for moving from Claude Code to OpenAI Codex CLI",
   "type": "module",
   "bin": {
     "cc2codex": "./bin/cc2codex.js"
   },
   "scripts": {
-    "start": "node bin/cc2codex.js"
+    "start": "node bin/cc2codex.js",
+    "test": "node --test"
   },
   "dependencies": {
     "commander": "^12.0.0",

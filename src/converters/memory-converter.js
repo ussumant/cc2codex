@@ -28,8 +28,9 @@ function classifyMemoryFile(name) {
  */
 export function convertMemory(inventory) {
   const warnings = [];
+  const indexes = inventory.memory.indexes || [];
 
-  if (!inventory.memory.index && inventory.memory.files.length === 0) {
+  if (indexes.length === 0 && inventory.memory.files.length === 0) {
     return { contextSection: '', warnings };
   }
 
@@ -37,13 +38,18 @@ export function convertMemory(inventory) {
   contextSection += '<!-- Migrated from Claude Code auto-memory. Review and prune as needed. -->\n\n';
 
   // Include the index file content if present
-  if (inventory.memory.index) {
+  if (indexes.length > 0) {
     contextSection += '### Memory Index\n\n';
-    // Strip the "# Auto Memory Index" heading if present
-    const indexContent = inventory.memory.index
-      .replace(/^#\s+Auto Memory Index\s*\n*/i, '')
-      .trim();
-    contextSection += indexContent + '\n\n';
+    for (const index of indexes) {
+      const indexContent = (index.content || '')
+        .replace(/^#\s+Auto Memory Index\s*\n*/i, '')
+        .trim();
+
+      if (!indexContent) continue;
+
+      contextSection += `#### ${index.name}\n\n`;
+      contextSection += indexContent + '\n\n';
+    }
   }
 
   // Group individual memory files by type
@@ -97,7 +103,7 @@ export function convertMemory(inventory) {
     );
   }
 
-  const fileCount = inventory.memory.files.length + (inventory.memory.index ? 1 : 0);
+  const fileCount = inventory.memory.files.length + indexes.length;
   warnings.push(
     `${fileCount} memory file(s) consolidated into a single AGENTS.md section`
   );

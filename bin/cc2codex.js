@@ -6,13 +6,14 @@ import { scan } from '../src/scanner.js';
 import { migrate } from '../src/generator.js';
 import { validate } from '../src/validator.js';
 import { bundlePlugins } from '../src/converters/plugin-bundler.js';
+import { planMigration } from '../src/planner.js';
 import { resolveClaudeHome, resolveCodexHome } from '../src/utils.js';
 
 const program = new Command();
 
 program
   .name('cc2codex')
-  .description('Migrate Claude Code setups to OpenAI Codex CLI')
+  .description('Unofficial migration assistant for moving from Claude Code to OpenAI Codex CLI')
   .version('1.0.0');
 
 program
@@ -22,7 +23,6 @@ program
   .option('--project <path>', 'Project directory to scan for CLAUDE.md files')
   .option('--json', 'Output raw JSON inventory')
   .action(async (opts) => {
-    console.log(chalk.cyan.bold('\n🔍 Scanning Claude Code setup...\n'));
     const inventory = await scan(opts.claudeHome, opts.project);
 
     if (opts.json) {
@@ -30,12 +30,36 @@ program
       return;
     }
 
+    console.log(chalk.cyan.bold('\n🔍 Scanning Claude Code setup...\n'));
+
     printInventorySummary(inventory);
   });
 
 program
+  .command('plan')
+  .description('Generate a staged migration plan without writing files')
+  .option('--claude-home <path>', 'Path to .claude directory', resolveClaudeHome())
+  .option('--codex-home <path>', 'Path to .codex output directory', resolveCodexHome())
+  .option('--project <path>', 'Project directory to include in the plan')
+  .option('--json', 'Output raw JSON migration plan')
+  .action(async (opts) => {
+    const inventory = await scan(opts.claudeHome, opts.project);
+    const plan = await planMigration(inventory, {
+      codexHome: opts.codexHome,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(plan, null, 2));
+      return;
+    }
+
+    console.log(chalk.cyan.bold('\n🧭 Building migration plan...\n'));
+    printPlanResult(plan);
+  });
+
+program
   .command('migrate')
-  .description('Convert Claude Code setup to Codex CLI format')
+  .description('Legacy one-shot migration flow (prefer plan + apply)')
   .option('--apply', 'Actually write files (default is dry-run)')
   .option('--force', 'Overwrite existing Codex files')
   .option('--only <component>', 'Migrate specific component: skills|hooks|mcp|claude-md|memory|plugins|settings')
@@ -60,6 +84,43 @@ program
     });
 
     printMigrationResult(result, dryRun);
+  });
+
+program
+  .command('apply')
+  .description('Apply a staged migration scope')
+  .option('--global', 'Apply high-confidence global config and context')
+  .option('--skills', 'Apply skills and agent-to-skill conversions')
+  .option('--force', 'Overwrite existing Codex files')
+  .option('--claude-home <path>', 'Path to .claude directory', resolveClaudeHome())
+  .option('--codex-home <path>', 'Path to .codex output directory', resolveCodexHome())
+  .option('--project <path>', 'Project directory to scan for plan context only')
+  .action(async (opts) => {
+    if (!opts.global && !opts.skills) {
+      console.error(chalk.red('Select at least one scope: --global and/or --skills'));
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log(chalk.green.bold('\n🚀 Applying staged migration...\n'));
+
+    const inventory = await scan(opts.claudeHome, opts.project);
+    const scopes = [];
+    if (opts.global) scopes.push('global');
+    if (opts.skills) scopes.push('skills');
+
+    for (const scope of scopes) {
+      const result = await migrate(inventory, {
+        dryRun: false,
+        force: opts.force || false,
+        only: null,
+        codexHome: opts.codexHome,
+        scope,
+      });
+
+      console.log(chalk.bold(`\n${scope === 'global' ? 'Global' : 'Skills'} scope:`));
+      printMigrationResult(result, false);
+    }
   });
 
 program
@@ -121,6 +182,13 @@ function printInventorySummary(inv) {
     console.log(`    ${event}: ${count}`);
   }
 
+  if (inv.warnings?.length) {
+    console.log(chalk.yellow.bold('\n  Scan warnings:'));
+    for (const warning of inv.warnings) {
+      console.log(`    ⚠️  ${warning}`);
+    }
+  }
+
   console.log('');
 }
 
@@ -151,14 +219,58 @@ function printPluginResult(result, dryRun) {
   for (const p of result.plugins) {
     console.log(`  📦 ${chalk.cyan(p.name)} — ${p.skillCount} skills, ${p.mcpCount} MCP servers`);
   }
+  if (result.unbundledSkills.length) {
+    console.log(chalk.yellow(`\n  Unbundled skills: ${result.unbundledSkills.join(', ')}`));
+  }
+  if (result.warnings.length) {
+    console.log(chalk.yellow.bold('\nWarnings:'));
+    for (const warning of result.warnings) {
+      console.log(`  ⚠️  ${warning}`);
+    }
+  }
   console.log('');
+}
+
+function printPlanResult(plan) {
+  console.log(chalk.bold('Migration Summary:'));
+  console.log(`  Global files:   ${chalk.cyan(plan.summary.globalFiles)}`);
+  console.log(`  Skill files:    ${chalk.cyan(plan.summary.skillFiles)}`);
+  console.log(`  Skills:         ${chalk.cyan(plan.summary.skills)}`);
+  console.log(`  Agents:         ${chalk.cyan(plan.summary.agents)}`);
+  console.log(`  MCP Servers:    ${chalk.cyan(plan.summary.mcpServers)}`);
+  console.log(`  Runtime cmds:   ${chalk.cyan(plan.summary.runtimeCommands.join(', ') || 'none')}`);
+
+  if (plan.manual.unsupportedHookEvents.length) {
+    console.log(chalk.yellow(`\n  Unsupported hook events: ${plan.manual.unsupportedHookEvents.join(', ')}`));
+  }
+  if (plan.manual.projectInstructionFiles.length) {
+    console.log(chalk.yellow(`  Project CLAUDE.md files needing manual review: ${plan.manual.projectInstructionFiles.length}`));
+  }
+
+  for (const stage of plan.stages) {
+    console.log(chalk.bold(`\n${stage.title}`));
+    console.log(`  Confidence: ${stage.confidence}`);
+    console.log(`  Files:      ${stage.files.length}`);
+    if (stage.warnings.length) {
+      console.log(`  Warnings:   ${stage.warnings.length}`);
+    }
+  }
+
+  console.log(chalk.cyan('\nSuggested flow: cc2codex plan -> cc2codex apply --global -> cc2codex apply --skills -> cc2codex validate\n'));
 }
 
 function printValidationResult(results) {
   let passed = 0;
+  let warnings = 0;
   let failed = 0;
   for (const r of results.checks) {
-    if (r.passed) {
+    if (r.passed && r.level === 'warning') {
+      console.log(`  ${chalk.yellow('!')} ${r.label}: ${r.reason}`);
+      warnings++;
+    } else if (r.passed && r.reason) {
+      console.log(`  ${chalk.green('✓')} ${r.label} (${r.reason})`);
+      passed++;
+    } else if (r.passed) {
       console.log(`  ${chalk.green('✓')} ${r.label}`);
       passed++;
     } else {
@@ -166,7 +278,8 @@ function printValidationResult(results) {
       failed++;
     }
   }
-  console.log(`\n  ${chalk.green(passed)} passed, ${failed ? chalk.red(failed) : '0'} failed\n`);
+  const warningSummary = warnings ? chalk.yellow(`${warnings} warning${warnings === 1 ? '' : 's'}`) : '0 warnings';
+  console.log(`\n  ${chalk.green(passed)} passed, ${warningSummary}, ${failed ? chalk.red(failed) : '0'} failed\n`);
 }
 
 program.parse();

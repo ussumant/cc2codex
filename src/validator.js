@@ -1,9 +1,8 @@
-import { homedir } from 'os';
 import { join, basename } from 'path';
 import { existsSync, readdirSync, readFileSync, statSync, accessSync, constants } from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import TOML from '@iarna/toml';
-import { parseFrontmatter, findClaudeReferences, readFileSafe } from './utils.js';
+import { parseFrontmatter, findClaudeReferences, readFileSafe, resolveAgentsHome } from './utils.js';
 
 /**
  * Post-migration validation for a Codex CLI setup.
@@ -13,16 +12,17 @@ import { parseFrontmatter, findClaudeReferences, readFileSafe } from './utils.js
  */
 export async function validate(codexHome) {
   const checks = [];
+  const agentsHome = resolveAgentsHome(codexHome);
 
   checks.push(checkConfigToml(codexHome));
   checks.push(checkHooksJson(codexHome));
   checks.push(...checkHookScriptsExist(codexHome));
-  checks.push(...checkAgentsMdSize(codexHome));
-  checks.push(...checkSkillFrontmatter());
+  checks.push(...checkAgentsMdSize(codexHome, agentsHome));
+  checks.push(...checkSkillFrontmatter(agentsHome));
   checks.push(...checkMcpCommands(codexHome));
-  checks.push(...checkPluginManifests(codexHome));
-  checks.push(checkMarketplaceJson(codexHome));
-  checks.push(...checkClaudeMdReferences(codexHome));
+  checks.push(...checkPluginManifests(agentsHome));
+  checks.push(checkMarketplaceJson(agentsHome));
+  checks.push(...checkClaudeMdReferences(codexHome, agentsHome));
 
   return { checks };
 }
@@ -51,7 +51,7 @@ function checkHooksJson(codexHome) {
   const hooksPath = join(codexHome, 'hooks.json');
   if (!existsSync(hooksPath)) {
     // hooks.json is optional — pass if it simply doesn't exist
-    return { label: 'hooks.json valid (or absent)', passed: true, reason: 'No hooks.json found (OK if no hooks)' };
+    return { label: 'hooks.json valid (or absent)', passed: true, level: 'info', reason: 'No hooks.json found (OK if no hooks)' };
   }
   try {
     const content = readFileSync(hooksPath, 'utf-8');
@@ -90,7 +90,10 @@ function checkHookScriptsExist(codexHome) {
 
     // If it looks like an absolute or relative path, check existence
     if (script.startsWith('/') || script.startsWith('./') || script.startsWith('../')) {
-      const exists = existsSync(script);
+      const resolvedScript = script.startsWith('/')
+        ? script
+        : join(codexHome, script);
+      const exists = existsSync(resolvedScript);
       if (!exists) {
         checks.push({
           label: `Hook script "${script}" exists`,
@@ -101,7 +104,7 @@ function checkHookScriptsExist(codexHome) {
       }
       // Check executable bit
       try {
-        accessSync(script, constants.X_OK);
+        accessSync(resolvedScript, constants.X_OK);
         checks.push({ label: `Hook script "${script}" is executable`, passed: true });
       } catch {
         checks.push({
@@ -119,17 +122,18 @@ function checkHookScriptsExist(codexHome) {
 /**
  * 4. All AGENTS.md files in common locations are < 32KB
  */
-function checkAgentsMdSize(codexHome) {
+function checkAgentsMdSize(codexHome, agentsHome) {
   const checks = [];
   const searchLocations = [
     join(codexHome, 'AGENTS.md'),
-    // Also check ~/.agents/ if it exists
-    join(codexHome, '..', '.agents', 'AGENTS.md'),
+    join(agentsHome, 'AGENTS.md'),
   ];
 
-  // Scan codexHome recursively for any AGENTS.md
-  const agentsMdFiles = findFilesRecursive(codexHome, 'AGENTS.md');
-  for (const loc of [...searchLocations, ...agentsMdFiles]) {
+  const agentsMdFiles = [
+    ...findFilesRecursive(codexHome, 'AGENTS.md'),
+    ...findFilesRecursive(agentsHome, 'AGENTS.md'),
+  ];
+  for (const loc of [...new Set([...searchLocations, ...agentsMdFiles])]) {
     if (!existsSync(loc)) continue;
     const stat = statSync(loc);
     const sizeKB = stat.size / 1024;
@@ -147,27 +151,28 @@ function checkAgentsMdSize(codexHome) {
 /**
  * 5. All SKILL.md files in ~/.agents/skills/ have name and description in frontmatter
  */
-function checkSkillFrontmatter() {
+function checkSkillFrontmatter(agentsHome) {
   const checks = [];
-  const skillsDir = join(homedir(), '.agents', 'skills');
+  const skillsDir = join(agentsHome, 'skills');
   if (!existsSync(skillsDir)) return checks;
 
-  const files = readdirSync(skillsDir).filter(f => f.endsWith('.md'));
-  for (const file of files) {
-    const content = readFileSafe(join(skillsDir, file));
+  const files = findFilesRecursive(skillsDir, 'SKILL.md');
+  for (const filePath of files) {
+    const content = readFileSafe(filePath);
     if (!content) continue;
     const { frontmatter } = parseFrontmatter(content);
     const hasName = !!frontmatter.name;
     const hasDesc = !!frontmatter.description;
+    const label = `Skill "${basename(filePath)}" has name + description`;
 
     if (hasName && hasDesc) {
-      checks.push({ label: `Skill "${file}" has name + description`, passed: true });
+      checks.push({ label, passed: true });
     } else {
       const missing = [];
       if (!hasName) missing.push('name');
       if (!hasDesc) missing.push('description');
       checks.push({
-        label: `Skill "${file}" has name + description`,
+        label,
         passed: false,
         reason: `Missing frontmatter: ${missing.join(', ')}`,
       });
@@ -198,7 +203,7 @@ function checkMcpCommands(codexHome) {
     if (!command) continue;
 
     try {
-      execSync(`which ${command}`, { stdio: 'pipe' });
+      execFileSync('which', [command], { stdio: 'pipe' });
       checks.push({ label: `MCP "${name}" command "${command}" is installed`, passed: true });
     } catch {
       checks.push({
@@ -215,14 +220,14 @@ function checkMcpCommands(codexHome) {
 /**
  * 7. Plugin manifests (if any) are valid JSON
  */
-function checkPluginManifests(codexHome) {
+function checkPluginManifests(agentsHome) {
   const checks = [];
-  const pluginsDir = join(codexHome, 'plugins');
+  const pluginsDir = join(agentsHome, 'plugins');
   if (!existsSync(pluginsDir)) return checks;
 
   const entries = readdirSync(pluginsDir);
   for (const entry of entries) {
-    const manifestPath = join(pluginsDir, entry, 'manifest.json');
+    const manifestPath = join(pluginsDir, entry, '.codex-plugin', 'plugin.json');
     if (!existsSync(manifestPath)) continue;
     try {
       JSON.parse(readFileSync(manifestPath, 'utf-8'));
@@ -242,10 +247,11 @@ function checkPluginManifests(codexHome) {
 /**
  * 8. marketplace.json (if exists) references valid paths
  */
-function checkMarketplaceJson(codexHome) {
-  const mpPath = join(codexHome, 'marketplace.json');
+function checkMarketplaceJson(agentsHome) {
+  const pluginsDir = join(agentsHome, 'plugins');
+  const mpPath = join(pluginsDir, 'marketplace.json');
   if (!existsSync(mpPath)) {
-    return { label: 'marketplace.json valid (or absent)', passed: true, reason: 'No marketplace.json (OK)' };
+    return { label: 'marketplace.json valid (or absent)', passed: true, level: 'info', reason: 'No marketplace.json (OK)' };
   }
 
   let mp;
@@ -258,8 +264,8 @@ function checkMarketplaceJson(codexHome) {
   // Check that referenced paths exist
   const entries = Array.isArray(mp) ? mp : (mp.plugins || []);
   for (const entry of entries) {
-    const refPath = entry.path || entry.dir;
-    if (refPath && !existsSync(join(codexHome, refPath))) {
+    const refPath = entry.path || entry.dir || entry.name;
+    if (refPath && !existsSync(join(pluginsDir, refPath))) {
       return {
         label: 'marketplace.json paths are valid',
         passed: false,
@@ -274,9 +280,12 @@ function checkMarketplaceJson(codexHome) {
 /**
  * 9. No CLAUDE.md references remain in AGENTS.md files (warn, don't fail)
  */
-function checkClaudeMdReferences(codexHome) {
+function checkClaudeMdReferences(codexHome, agentsHome) {
   const checks = [];
-  const agentsMdFiles = findFilesRecursive(codexHome, 'AGENTS.md');
+  const agentsMdFiles = [
+    ...findFilesRecursive(codexHome, 'AGENTS.md'),
+    ...findFilesRecursive(agentsHome, 'AGENTS.md'),
+  ];
 
   for (const filePath of agentsMdFiles) {
     const content = readFileSafe(filePath);
@@ -286,6 +295,7 @@ function checkClaudeMdReferences(codexHome) {
       checks.push({
         label: `No Claude references in ${basename(filePath)}`,
         passed: true, // warn, don't fail
+        level: 'warning',
         reason: `Warning: found ${refs.length} Claude-specific reference(s): ${refs.slice(0, 3).join('; ')}${refs.length > 3 ? '...' : ''}`,
       });
     } else {

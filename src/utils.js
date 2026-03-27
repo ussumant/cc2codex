@@ -1,5 +1,5 @@
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { readFileSync, existsSync, statSync } from 'fs';
 
 export function resolveClaudeHome() {
@@ -10,7 +10,14 @@ export function resolveCodexHome() {
   return join(homedir(), '.codex');
 }
 
-export function resolveAgentsHome() {
+export function resolveAgentsHome(codexHome = null) {
+  if (codexHome) {
+    const defaultCodexHome = resolveCodexHome();
+    if (codexHome !== defaultCodexHome) {
+      return join(dirname(codexHome), '.agents');
+    }
+  }
+
   return join(homedir(), '.agents');
 }
 
@@ -55,6 +62,29 @@ export function mcpServerToToml(name, config) {
   }
   toml += `enabled = true\n`;
   return toml;
+}
+
+export function normalizeMcpConfig(config = {}) {
+  const sourceDir = config.source ? dirname(config.source) : null;
+  const replacePluginRoot = (value) => {
+    if (typeof value !== 'string') return value;
+    if (!sourceDir) return value;
+    return value.replaceAll('${CLAUDE_PLUGIN_ROOT}', sourceDir);
+  };
+
+  const normalized = {
+    ...config,
+    command: replacePluginRoot(config.command),
+    args: Array.isArray(config.args) ? config.args.map(replacePluginRoot) : config.args,
+  };
+
+  if (config.env && typeof config.env === 'object') {
+    normalized.env = Object.fromEntries(
+      Object.entries(config.env).map(([key, value]) => [key, replacePluginRoot(value)])
+    );
+  }
+
+  return normalized;
 }
 
 /**

@@ -1,7 +1,88 @@
-import { join, basename, relative } from 'path';
+import { join, basename, relative, dirname } from 'path';
 import { existsSync, readdirSync, statSync } from 'fs';
 import { glob } from 'glob';
 import { readJsonSafe, readFileSafe, fileSizeBytes } from './utils.js';
+
+function findPrimaryMarkdownFile(dirPath, itemName) {
+  const innerFiles = readdirSync(dirPath);
+  const preferredNames = ['SKILL.md', 'AGENT.md', 'index.md', `${itemName}.md`];
+  const mainFile = preferredNames.find(f => innerFiles.includes(f))
+    || innerFiles.find(f => f.endsWith('.md'));
+
+  return { innerFiles, contentPath: mainFile ? join(dirPath, mainFile) : null };
+}
+
+function scanSkillsDir(skillsDir, target, warnings, scopeLabel) {
+  if (!existsSync(skillsDir)) return;
+
+  const items = readdirSync(skillsDir);
+  for (const item of items) {
+    const fullPath = join(skillsDir, item);
+    const stat = statSync(fullPath);
+    if (stat.isFile() && item.endsWith('.md')) {
+      target.push({
+        name: basename(item, '.md'),
+        path: fullPath,
+        content: readFileSafe(fullPath),
+        sizeBytes: fileSizeBytes(fullPath),
+        isDirectory: false,
+      });
+      continue;
+    }
+
+    if (!stat.isDirectory()) continue;
+
+    const { innerFiles, contentPath } = findPrimaryMarkdownFile(fullPath, item);
+    if (!contentPath) {
+      warnings.push(`${scopeLabel} skill directory "${fullPath}" has no markdown entrypoint`);
+    }
+
+    target.push({
+      name: item,
+      path: fullPath,
+      content: contentPath ? readFileSafe(contentPath) : null,
+      sizeBytes: contentPath ? fileSizeBytes(contentPath) : 0,
+      isDirectory: true,
+      innerFiles,
+    });
+  }
+}
+
+function scanAgentsDir(agentsDir, target, warnings, scopeLabel) {
+  if (!existsSync(agentsDir)) return;
+
+  const items = readdirSync(agentsDir);
+  for (const item of items) {
+    const fullPath = join(agentsDir, item);
+    const stat = statSync(fullPath);
+
+    if (stat.isFile() && item.endsWith('.md')) {
+      target.push({
+        name: basename(item, '.md'),
+        path: fullPath,
+        content: readFileSafe(fullPath),
+        isDirectory: false,
+      });
+      continue;
+    }
+
+    if (!stat.isDirectory() || item === '_archived') continue;
+
+    const inner = readdirSync(fullPath).filter(f => f.endsWith('.md'));
+    if (inner.length === 0) {
+      warnings.push(`${scopeLabel} agent directory "${fullPath}" has no markdown entrypoint`);
+    }
+
+    for (const innerFile of inner) {
+      target.push({
+        name: `${item}/${basename(innerFile, '.md')}`,
+        path: join(fullPath, innerFile),
+        content: readFileSafe(join(fullPath, innerFile)),
+        isDirectory: true,
+      });
+    }
+  }
+}
 
 /**
  * Scan and inventory a Claude Code setup
@@ -18,12 +99,13 @@ export async function scan(claudeHome, projectDir) {
     agents: [],
     hooks: [],
     mcpServers: {},
-    memory: { index: null, files: [] },
+    memory: { indexes: [], files: [] },
     claudeMdFiles: [],
     projectAgents: [],
     projectSkills: [],
     permissions: { allow: [], deny: [] },
     envVars: {},
+    warnings: [],
   };
 
   // 1. Settings files
@@ -31,67 +113,10 @@ export async function scan(claudeHome, projectDir) {
   inventory.settingsLocal = readJsonSafe(join(claudeHome, 'settings.local.json'));
 
   // 2. Skills — can be .md files OR directories (containing the skill content)
-  const skillsDir = join(claudeHome, 'skills');
-  if (existsSync(skillsDir)) {
-    const items = readdirSync(skillsDir);
-    for (const item of items) {
-      const fullPath = join(skillsDir, item);
-      const stat = statSync(fullPath);
-      if (stat.isFile() && item.endsWith('.md')) {
-        // Single .md file skill
-        inventory.skills.push({
-          name: basename(item, '.md'),
-          path: fullPath,
-          content: readFileSafe(fullPath),
-          sizeBytes: fileSizeBytes(fullPath),
-          isDirectory: false,
-        });
-      } else if (stat.isDirectory()) {
-        // Directory skill — look for main .md file inside
-        const innerFiles = readdirSync(fullPath);
-        const mainFile = innerFiles.find(f => f === 'index.md' || f === `${item}.md`)
-          || innerFiles.find(f => f.endsWith('.md'));
-        const contentPath = mainFile ? join(fullPath, mainFile) : null;
-        inventory.skills.push({
-          name: item,
-          path: fullPath,
-          content: contentPath ? readFileSafe(contentPath) : null,
-          sizeBytes: contentPath ? fileSizeBytes(contentPath) : 0,
-          isDirectory: true,
-          innerFiles,
-        });
-      }
-    }
-  }
+  scanSkillsDir(join(claudeHome, 'skills'), inventory.skills, inventory.warnings, 'Global');
 
   // 3. Agents
-  const agentsDir = join(claudeHome, 'agents');
-  if (existsSync(agentsDir)) {
-    const items = readdirSync(agentsDir);
-    for (const item of items) {
-      const fullPath = join(agentsDir, item);
-      const stat = statSync(fullPath);
-      if (stat.isFile() && item.endsWith('.md')) {
-        inventory.agents.push({
-          name: basename(item, '.md'),
-          path: fullPath,
-          content: readFileSafe(fullPath),
-          isDirectory: false,
-        });
-      } else if (stat.isDirectory() && item !== '_archived') {
-        // Agent directory — look for .md files inside
-        const inner = readdirSync(fullPath).filter(f => f.endsWith('.md'));
-        for (const innerFile of inner) {
-          inventory.agents.push({
-            name: `${item}/${basename(innerFile, '.md')}`,
-            path: join(fullPath, innerFile),
-            content: readFileSafe(join(fullPath, innerFile)),
-            isDirectory: true,
-          });
-        }
-      }
-    }
-  }
+  scanAgentsDir(join(claudeHome, 'agents'), inventory.agents, inventory.warnings, 'Global');
 
   // 4. Extract hooks from settings
   // Claude Code hooks format: { EventName: [{ matcher?, hooks: [{ type, command }] }] }
@@ -182,7 +207,12 @@ export async function scan(claudeHome, projectDir) {
   for (const memDir of memoryDirs) {
     const indexFile = join(memDir, 'MEMORY.md');
     if (existsSync(indexFile)) {
-      inventory.memory.index = readFileSafe(indexFile);
+      inventory.memory.indexes ??= [];
+      inventory.memory.indexes.push({
+        name: basename(dirname(memDir)),
+        path: indexFile,
+        content: readFileSafe(indexFile),
+      });
     }
     const memFiles = readdirSync(memDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
     for (const mf of memFiles) {
@@ -217,29 +247,8 @@ export async function scan(claudeHome, projectDir) {
 
   // 10. Project-level agents and skills
   if (projectDir) {
-    const projAgentsDir = join(projectDir, '.claude', 'agents');
-    if (existsSync(projAgentsDir)) {
-      const items = readdirSync(projAgentsDir).filter(f => f.endsWith('.md'));
-      for (const item of items) {
-        inventory.projectAgents.push({
-          name: basename(item, '.md'),
-          path: join(projAgentsDir, item),
-          content: readFileSafe(join(projAgentsDir, item)),
-        });
-      }
-    }
-
-    const projSkillsDir = join(projectDir, '.claude', 'skills');
-    if (existsSync(projSkillsDir)) {
-      const items = readdirSync(projSkillsDir).filter(f => f.endsWith('.md'));
-      for (const item of items) {
-        inventory.projectSkills.push({
-          name: basename(item, '.md'),
-          path: join(projSkillsDir, item),
-          content: readFileSafe(join(projSkillsDir, item)),
-        });
-      }
-    }
+    scanAgentsDir(join(projectDir, '.claude', 'agents'), inventory.projectAgents, inventory.warnings, 'Project');
+    scanSkillsDir(join(projectDir, '.claude', 'skills'), inventory.projectSkills, inventory.warnings, 'Project');
   }
 
   return inventory;

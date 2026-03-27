@@ -1,6 +1,20 @@
 import { join } from 'path';
 import { parseFrontmatter, findClaudeReferences, resolveAgentsHome } from '../utils.js';
 
+function ensureAgentFrontmatter(frontmatter, fallbackName) {
+  const normalized = { ...frontmatter };
+
+  if (!normalized.name) {
+    normalized.name = fallbackName;
+  }
+
+  if (!normalized.description) {
+    normalized.description = 'Migrated Claude Code agent converted to a Codex skill';
+  }
+
+  return normalized;
+}
+
 /**
  * Convert Claude Code agent definitions to Codex skills.
  * Codex has no agent concept (no parallel spawning), so agents become skills
@@ -28,18 +42,17 @@ export function convertAgents(inventory, opts = {}) {
   for (const agent of allAgents) {
     const skillWarnings = [];
     const { frontmatter, body } = parseFrontmatter(agent.content || '');
+    const normalizedFrontmatter = ensureAgentFrontmatter(frontmatter, agent.name);
 
     // Build content with migration header
     let content = '';
 
     // Preserve frontmatter
-    if (Object.keys(frontmatter).length > 0) {
-      content += '---\n';
-      for (const [key, val] of Object.entries(frontmatter)) {
-        content += `${key}: ${val}\n`;
-      }
-      content += '---\n';
+    content += '---\n';
+    for (const [key, val] of Object.entries(normalizedFrontmatter)) {
+      content += `${key}: ${val}\n`;
     }
+    content += '---\n';
 
     // Add migration note
     content += '\n<!-- Migration note: This was a Claude Code agent. -->\n';

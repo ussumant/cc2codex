@@ -1,5 +1,13 @@
 import { settingsToToml, findClaudeReferences } from '../utils.js';
 
+function redactEnvValue(key) {
+  if (/key|token|secret|password|api/i.test(key)) {
+    return '<set in shell>';
+  }
+
+  return '<set in shell>';
+}
+
 /**
  * Convert Claude Code settings.json to Codex config.toml
  * MCP servers are handled separately by mcp-converter
@@ -69,13 +77,13 @@ export function convertSettings(inventory) {
   // Environment variables as comments
   if (inventory.envVars && Object.keys(inventory.envVars).length > 0) {
     toml += '# Environment Variables\n';
-    toml += '# Codex reads env vars from the shell. Set these in your shell profile:\n';
-    for (const [key, value] of Object.entries(inventory.envVars)) {
-      toml += `# export ${key}="${value}"\n`;
+    toml += '# Codex reads env vars from the shell. Recreate these in your shell profile:\n';
+    for (const [key] of Object.entries(inventory.envVars)) {
+      toml += `# export ${key}="${redactEnvValue(key)}"\n`;
     }
     toml += '\n';
     warnings.push(
-      `${Object.keys(inventory.envVars).length} env var(s) written as comments — Codex reads env from the shell`
+      `${Object.keys(inventory.envVars).length} env var name(s) noted as comments — values were redacted for safety`
     );
   }
 

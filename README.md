@@ -1,17 +1,32 @@
 # cc2codex
 
-Migrate your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) setup to [OpenAI Codex CLI](https://github.com/openai/codex) — automatically.
+> Beta, unofficial Codex migration assistant focused on getting advanced Claude Code users moved over quickly without a blind one-shot rewrite.
 
-**What it does:** Scans your `~/.claude/` directory, discovers all skills, agents, hooks, MCP servers, memory files, and `CLAUDE.md` project instructions, then generates the equivalent Codex CLI configuration.
+An unofficial migration assistant for moving from [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to [OpenAI Codex CLI](https://github.com/openai/codex).
+
+**What it does:** Scans your `~/.claude/` directory, inventories what can be migrated safely, generates a staged migration plan, and lets you apply high-confidence global config and skill conversions separately.
+
+**What it does not promise:** perfect semantic conversion of every Claude-specific workflow. It is optimized for speed, safety, and getting you to a working Codex setup fast.
 
 ## Quick Start
 
 ```bash
 npm install
-node bin/cc2codex.js scan          # See what you have (read-only)
-node bin/cc2codex.js migrate       # Dry-run — shows what it would create
-node bin/cc2codex.js migrate --apply  # Actually write the files
+node bin/cc2codex.js scan                     # See what you have (read-only)
+node bin/cc2codex.js plan                     # Build a staged migration plan
+node bin/cc2codex.js apply --global           # Apply high-confidence global migration
+node bin/cc2codex.js apply --skills           # Apply skills and agent-to-skill conversion
+node bin/cc2codex.js validate                 # Verify the generated Codex setup
 ```
+
+## Release Status
+
+`cc2codex` is currently a beta migration assistant. The supported promise is:
+- fast inventory of an existing Claude Code setup
+- selective application of high-confidence Codex-compatible outputs
+- explicit reporting of follow-up items instead of silently guessing
+
+If you want a no-surprises migration, use `plan` first, then `apply --global`, then `apply --skills`, then `validate`.
 
 ## What Gets Migrated
 
@@ -35,16 +50,37 @@ cc2codex scan [--claude-home ~/.claude] [--project ./my-project] [--json]
 
 Outputs an inventory: skills count, agents, hooks by event, MCP servers, memory files, CLAUDE.md files with combined size check.
 
-### `migrate` — Convert to Codex format
+### `plan` — Build a staged migration plan
+
+```bash
+cc2codex plan [--claude-home ~/.claude] [--project ./my-project] [--codex-home ~/.codex] [--json]
+```
+
+Outputs a two-stage migration plan:
+- **Global** — high-confidence Codex config, hooks, MCP, memory/context, global instructions
+- **Skills** — skill conversion and agent-to-skill conversion
+
+It also highlights manual follow-up items like unsupported hook events and project `CLAUDE.md` files.
+
+### `apply` — Apply a staged migration scope
+
+```bash
+cc2codex apply --global [--force]
+cc2codex apply --skills [--force]
+cc2codex apply --global --skills [--force]
+```
+
+- `--global` — writes high-confidence global config and context
+- `--skills` — writes skills and agent conversions into the target `.agents` tree
+- `--force` — overwrite existing files (backs up first)
+
+### `migrate` — Legacy one-shot flow
 
 ```bash
 cc2codex migrate [--apply] [--force] [--only <component>]
 ```
 
-- **Dry-run by default** — shows what files would be created
-- `--apply` — actually write the files
-- `--force` — overwrite existing files (backs up first)
-- `--only` — migrate a single component: `skills`, `hooks`, `mcp`, `settings`, `agents`, `memory`, `claude-md`
+Still available for power users and backwards compatibility. For public use, prefer `plan` + `apply`.
 
 ### `bundle-plugins` — Group skills into Codex plugins
 
@@ -103,27 +139,30 @@ Claude Code Inventory:
 ```
 
 ```
-$ cc2codex migrate
+$ cc2codex plan
 
-🏜️  DRY RUN — no files will be written. Use --apply to execute.
+🧭 Building migration plan...
 
-Would create:
-  ~ ~/.codex/config.toml
-  ~ ~/.codex/hooks.json
-  ~ ~/.codex/mcp-servers.toml
-  ~ ~/.agents/skills/browse/SKILL.md
-  ~ ~/.agents/skills/qa/SKILL.md
-  ~ ~/.agents/skills/ship/SKILL.md
-  ... (82 skills + 18 agents converted)
+Migration Summary:
+  Global files:   4
+  Skill files:    103
+  Skills:         82
+  Agents:         21
+  MCP Servers:    7
+  Runtime cmds:   bun, node, npx
 
-Warnings:
-  ⚠️  Skill "my-skill": Contains Claude-specific references: Agent tool
-  ⚠️  2 AGENTS.md files exceed 32KB limit
+  Unsupported hook events: PermissionRequest, SubagentStop
+  Project CLAUDE.md files needing manual review: 37
 
-Manual steps required:
-  → Re-authenticate MCP servers
-  → Review AGENTS.md for remaining Claude-specific references
-  → Run cc2codex validate
+Apply high-confidence global migration
+  Confidence: safe_with_review
+  Files:      4
+  Warnings:   8
+
+Apply converted skills and agent-to-skill outputs
+  Confidence: safe_with_review
+  Files:      103
+  Warnings:   26
 ```
 
 ## Feature Mapping
@@ -176,49 +215,61 @@ node bin/cc2codex.js scan
 ```
 Read-only. Shows your skills count, agents, hooks by event, MCP servers, memory files, and CLAUDE.md combined size.
 
-### Step 3: Preview the migration
+### Step 3: Build the migration plan
 ```bash
-node bin/cc2codex.js migrate
+node bin/cc2codex.js plan
 ```
-Dry-run. Shows every file it would create, every warning, every manual step. **Nothing is written.**
+Shows the staged migration, warning counts, runtime prerequisites, and which files still need manual review. **Nothing is written.**
 
-### Step 4: Run it for real
+### Step 4: Apply the global migration
 ```bash
-node bin/cc2codex.js migrate --apply
+node bin/cc2codex.js apply --global
+```
+Creates the high-confidence global Codex setup:
+- `~/.codex/config.toml` — Codex settings plus MCP server sections
+- `~/.codex/hooks.json` — your hooks in Codex format
+- `~/.codex/CONTEXT.md` — memory files consolidated
+- `~/.codex/AGENTS.md` — global instruction file converted from Claude
+
+### Step 5: Apply skills
+```bash
+node bin/cc2codex.js apply --skills
 ```
 Creates:
-- `~/.codex/config.toml` — Codex settings (model, sandbox, approval policy)
-- `~/.codex/hooks.json` — your hooks in Codex format
-- `~/.codex/mcp-servers.toml` — MCP server configs
-- `~/.agents/skills/*/SKILL.md` — every skill as a Codex skill directory
-- `~/.codex/CONTEXT.md` — memory files consolidated
-- `*/AGENTS.md` — every CLAUDE.md converted with content cleanup
+- `~/.agents/skills/*/SKILL.md` — converted skills and agent-to-skill outputs
 
-### Step 5 (optional): Bundle into plugins
+### Step 6 (optional): Bundle into plugins
 ```bash
 node bin/cc2codex.js bundle-plugins --apply
 ```
 Groups related skills + MCP servers into Codex plugins — versioned, distributable packages you can share across projects.
 
-### Step 6: Validate
+### Step 7: Validate
 ```bash
 node bin/cc2codex.js validate
 ```
-Checks TOML/JSON validity, AGENTS.md sizes, hook scripts exist, MCP commands installed.
+Checks TOML/JSON validity, AGENTS.md sizes, nested skill frontmatter, hook scripts, MCP commands, and plugin manifests/marketplace output.
 
-### Step 7: Test in Codex
+### Step 8: Test in Codex
 ```bash
 cd your-project
 codex "Summarize current instructions"
 ```
 If it reads back your project context — you're migrated.
 
+### Step 9: Run the local test suite
+```bash
+npm test
+```
+Exercises fixture-based scan, migrate, bundle, backup, and validate flows.
+
 ### Manual cleanup (the last 10%)
 The tool handles 90% automatically. The remaining manual work:
 
 - **MCP authentication** — some servers need re-authentication in Codex
-- **Claude-specific references** — the tool warns about these; search your AGENTS.md files for `CLAUDE.md`, `~/.claude/`, `Agent tool` and update
+- **Claude-specific references** — the assistant warns about these; search your AGENTS.md and migrated skills for `CLAUDE.md`, `~/.claude/`, `Agent tool` and update
 - **Parallel agent workflows** — if you used `TeamCreate`, restructure to `codex exec` or multiple terminal sessions
+- **Project `CLAUDE.md` files** — v1 reports these for manual follow-up instead of auto-applying them by default
 
 ### Quick Reference: Claude Code → Codex
 

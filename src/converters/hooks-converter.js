@@ -3,7 +3,7 @@ import { findClaudeReferences } from '../utils.js';
 /**
  * Valid hook events shared between Claude Code and Codex
  */
-const VALID_EVENTS = [
+export const VALID_EVENTS = [
   'SessionStart',
   'PreToolUse',
   'PostToolUse',
@@ -27,6 +27,7 @@ export function convertHooks(inventory) {
     // Validate event name
     if (!VALID_EVENTS.includes(hook.event)) {
       warnings.push(`Unknown hook event "${hook.event}" — may not be supported in Codex`);
+      continue;
     }
 
     const codexHook = {

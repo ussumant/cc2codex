@@ -1,4 +1,4 @@
-import { mcpServerToToml, findClaudeReferences } from '../utils.js';
+import { mcpServerToToml, findClaudeReferences, normalizeMcpConfig } from '../utils.js';
 
 /**
  * Convert MCP server configs from Claude Code JSON format to Codex TOML format.
@@ -16,26 +16,28 @@ export function convertMcpServers(inventory) {
   toml += '# Converted from Claude Code settings.json\n\n';
 
   for (const [name, config] of Object.entries(inventory.mcpServers)) {
+    const normalizedConfig = normalizeMcpConfig(config);
+
     // Check if the server is disabled
-    if (config.disabled === true || config.enabled === false) {
+    if (normalizedConfig.disabled === true || normalizedConfig.enabled === false) {
       toml += `# Disabled server: ${name}\n`;
-      toml += `# ${mcpServerToToml(name, config).replace(/\n/g, '\n# ')}\n`;
+      toml += `# ${mcpServerToToml(name, normalizedConfig).replace(/\n/g, '\n# ')}\n`;
       warnings.push(`MCP server "${name}" was disabled — commented out in output`);
       continue;
     }
 
     // Validate required fields
-    if (!config.command) {
+    if (!normalizedConfig.command) {
       warnings.push(`MCP server "${name}" has no command — skipped`);
       continue;
     }
 
-    toml += mcpServerToToml(name, config);
+    toml += mcpServerToToml(name, normalizedConfig);
     toml += '\n';
     serverCount++;
 
     // Check for Claude-specific references in server config
-    const configStr = JSON.stringify(config);
+    const configStr = JSON.stringify(normalizedConfig);
     const refs = findClaudeReferences(configStr);
     if (refs.length > 0) {
       warnings.push(
@@ -44,8 +46,8 @@ export function convertMcpServers(inventory) {
     }
 
     // Warn about env vars that might contain API keys
-    if (config.env) {
-      const sensitiveKeys = Object.keys(config.env).filter(
+    if (normalizedConfig.env) {
+      const sensitiveKeys = Object.keys(normalizedConfig.env).filter(
         k => /key|token|secret|password|api/i.test(k)
       );
       if (sensitiveKeys.length > 0) {

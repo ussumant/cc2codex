@@ -1,5 +1,6 @@
-import { join } from 'path';
-import { resolveAgentsHome } from '../utils.js';
+import { join, dirname } from 'path';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { resolveAgentsHome, resolveCodexHome, normalizeMcpConfig } from '../utils.js';
 
 /**
  * Default bundle definitions mapping skill names and MCP servers
@@ -135,19 +136,20 @@ function buildPluginJson(bundleName, bundleDef, hasMcp) {
  * Build .mcp.json content from inventory MCP server configs.
  */
 function buildMcpJson(mcpNames, inventoryMcpServers) {
-  const servers = {};
+  const mcpServers = {};
   for (const name of mcpNames) {
     const config = inventoryMcpServers[name];
     if (!config) continue;
-    servers[name] = {
-      command: config.command || '',
-      args: config.args || [],
+    const normalizedConfig = normalizeMcpConfig(config);
+    mcpServers[name] = {
+      command: normalizedConfig.command || '',
+      args: normalizedConfig.args || [],
     };
-    if (config.env && Object.keys(config.env).length > 0) {
-      servers[name].env = config.env;
+    if (normalizedConfig.env && Object.keys(normalizedConfig.env).length > 0) {
+      mcpServers[name].env = normalizedConfig.env;
     }
   }
-  return { servers };
+  return { mcpServers };
 }
 
 /**
@@ -157,8 +159,15 @@ function buildMcpJson(mcpNames, inventoryMcpServers) {
  * @param {object} inventory - The scanned Claude Code inventory
  * @returns {Array<{ path: string, content: string }>}
  */
-export function generatePluginFiles(inventory) {
-  const agentsHome = resolveAgentsHome();
+function ensureDir(dirPath) {
+  if (!existsSync(dirPath)) {
+    mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+export function generatePluginFiles(inventory, opts = {}) {
+  const codexHome = opts.codexHome || resolveCodexHome();
+  const agentsHome = opts.agentsHome || resolveAgentsHome(codexHome);
   const pluginsRoot = join(agentsHome, 'plugins');
   const skillMap = buildSkillMap(inventory);
   const bundles = DEFAULT_BUNDLES;
@@ -215,6 +224,7 @@ export function generatePluginFiles(inventory) {
       description: bundleDef.description,
       category: bundleDef.category,
       displayName: toDisplayName(bundleName),
+      dir: bundleName,
       skillCount: resolvedSkills.length,
       mcpCount: matchedMcp.length,
     });
@@ -272,7 +282,7 @@ export async function bundlePlugins(inventory, opts = {}) {
   }
 
   // Generate files
-  const files = generatePluginFiles(inventory);
+  const files = generatePluginFiles(inventory, opts);
 
   // Build per-plugin summaries from the generated files
   const pluginMap = new Map();
@@ -299,7 +309,7 @@ export async function bundlePlugins(inventory, opts = {}) {
     if (file.path.endsWith('.mcp.json')) {
       try {
         const parsed = JSON.parse(file.content);
-        entry.mcpCount = Object.keys(parsed.servers || {}).length;
+        entry.mcpCount = Object.keys(parsed.mcpServers || {}).length;
       } catch {
         // ignore parse errors
       }
@@ -307,6 +317,13 @@ export async function bundlePlugins(inventory, opts = {}) {
   }
 
   const plugins = [...pluginMap.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  if (!opts.dryRun) {
+    for (const file of files) {
+      ensureDir(dirname(file.path));
+      writeFileSync(file.path, file.content, 'utf-8');
+    }
+  }
 
   return { plugins, unbundledSkills, warnings };
 }

@@ -1,6 +1,20 @@
 import { join } from 'path';
 import { parseFrontmatter, findClaudeReferences, resolveAgentsHome } from '../utils.js';
 
+function ensureSkillFrontmatter(frontmatter, fallbackName, kind) {
+  const normalized = { ...frontmatter };
+
+  if (!normalized.name) {
+    normalized.name = fallbackName;
+  }
+
+  if (!normalized.description) {
+    normalized.description = `Migrated ${kind} from Claude Code`;
+  }
+
+  return normalized;
+}
+
 /**
  * Convert Claude Code skill files (single .md) to Codex skill directories (dir/SKILL.md).
  * Claude skills: ~/.claude/skills/{name}.md
@@ -23,16 +37,15 @@ export function convertSkills(inventory, opts = {}) {
   for (const skill of allSkills) {
     const skillWarnings = [];
     const { frontmatter, body } = parseFrontmatter(skill.content || '');
+    const normalizedFrontmatter = ensureSkillFrontmatter(frontmatter, skill.name, 'skill');
 
     // Reconstruct content with frontmatter preserved
     let content = '';
-    if (Object.keys(frontmatter).length > 0) {
-      content += '---\n';
-      for (const [key, val] of Object.entries(frontmatter)) {
-        content += `${key}: ${val}\n`;
-      }
-      content += '---\n';
+    content += '---\n';
+    for (const [key, val] of Object.entries(normalizedFrontmatter)) {
+      content += `${key}: ${val}\n`;
     }
+    content += '---\n';
     content += body;
 
     // Check for Claude-specific references

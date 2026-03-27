@@ -1,6 +1,6 @@
-import { join, dirname, basename } from 'path';
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, readFileSync } from 'fs';
-import { resolveCodexHome, resolveAgentsHome, findClaudeReferences } from './utils.js';
+import { join, dirname } from 'path';
+import { existsSync, mkdirSync, writeFileSync, copyFileSync } from 'fs';
+import { resolveAgentsHome } from './utils.js';
 import { convertSettings } from './converters/settings-to-toml.js';
 import { convertHooks } from './converters/hooks-converter.js';
 import { convertMcpServers } from './converters/mcp-converter.js';
@@ -25,12 +25,14 @@ function normalizeResult(component, raw, opts) {
 
     case 'hooks':
       // { hooksJson, warnings }
-      if (raw.hooksJson) files.push({ path: join(codexHome, 'hooks.json'), content: JSON.stringify(raw.hooksJson, null, 2) });
+      if (Array.isArray(raw.hooksJson) && raw.hooksJson.length > 0) {
+        files.push({ path: join(codexHome, 'hooks.json'), content: JSON.stringify(raw.hooksJson, null, 2) });
+      }
       break;
 
     case 'mcp':
       // { toml, serverCount, warnings }
-      if (raw.toml) files.push({ path: join(codexHome, 'mcp-servers.toml'), content: raw.toml });
+      if (raw.toml) files.push({ path: join(codexHome, 'config.toml'), content: raw.toml });
       break;
 
     case 'skills':
@@ -72,6 +74,12 @@ const CONVERTERS = {
   'claude-md': convertClaudeMd,
 };
 
+const SCOPE_COMPONENTS = {
+  all: ['settings', 'hooks', 'mcp', 'skills', 'agents', 'memory', 'claude-md'],
+  global: ['settings', 'hooks', 'mcp', 'memory', 'claude-md'],
+  skills: ['skills', 'agents'],
+};
+
 /**
  * Ensure a directory exists, creating parents as needed.
  */
@@ -91,12 +99,28 @@ function backupFile(filePath, codexHome) {
   if (filePath.startsWith(codexHome)) {
     relativeName = filePath.slice(codexHome.length + 1);
   } else {
-    relativeName = basename(filePath);
+    const agentsHome = resolveAgentsHome(codexHome);
+    if (filePath.startsWith(agentsHome)) {
+      relativeName = join('.agents', filePath.slice(agentsHome.length + 1));
+    } else {
+      relativeName = filePath.replace(/^[/\\]+/, '').replace(/[:\\]/g, '-');
+    }
   }
   const backupPath = join(backupDir, relativeName);
   ensureDir(dirname(backupPath));
   copyFileSync(filePath, backupPath);
   return backupPath;
+}
+
+function mergeFileContent(filePath, currentContent, nextContent) {
+  if (!currentContent) return nextContent;
+  if (!nextContent) return currentContent;
+
+  if (filePath.endsWith('config.toml')) {
+    return `${currentContent.trimEnd()}\n\n${nextContent.trim()}\n`;
+  }
+
+  return nextContent;
 }
 
 /**
@@ -107,19 +131,30 @@ function backupFile(filePath, codexHome) {
  * @returns {{ filesCreated: string[], warnings: string[], manualSteps: string[] }}
  */
 export async function migrate(inventory, opts) {
-  const { dryRun, force, only, codexHome } = opts;
-  const agentsHome = resolveAgentsHome();
+  const { dryRun, force, only, codexHome, scope = 'all' } = opts;
+  const agentsHome = resolveAgentsHome(codexHome);
 
   const result = {
     filesCreated: [],
     warnings: [],
     manualSteps: [],
   };
+  const pendingFiles = new Map();
+
+  if (inventory.warnings?.length) {
+    result.warnings.push(...inventory.warnings);
+  }
 
   // Determine which components to run
   const components = only
     ? [only]
-    : ['settings', 'hooks', 'mcp', 'skills', 'agents', 'memory', 'claude-md'];
+    : (SCOPE_COMPONENTS[scope] || SCOPE_COMPONENTS.all);
+  const scopedInventory = scope === 'global'
+    ? {
+        ...inventory,
+        claudeMdFiles: inventory.claudeMdFiles.filter(file => file.path.startsWith(inventory.claudeHome)),
+      }
+    : inventory;
 
   for (const component of components) {
     const converter = CONVERTERS[component];
@@ -130,7 +165,7 @@ export async function migrate(inventory, opts) {
 
     let rawResult;
     try {
-      rawResult = await converter(inventory, { codexHome, agentsHome });
+      rawResult = await converter(scopedInventory, { codexHome, agentsHome });
     } catch (err) {
       result.warnings.push(`Converter "${component}" threw: ${err.message}`);
       continue;
@@ -144,32 +179,39 @@ export async function migrate(inventory, opts) {
     // Collect warnings
     if (converted.warnings) result.warnings.push(...converted.warnings);
 
-    // Process each output file
+    // Collect each output file and merge where multiple converters target the same file
     for (const file of converted.files) {
       const targetPath = file.path;
-
-      if (dryRun) {
-        result.filesCreated.push(targetPath);
-        continue;
+      const existing = pendingFiles.get(targetPath);
+      if (existing) {
+        existing.content = mergeFileContent(targetPath, existing.content, file.content);
+      } else {
+        pendingFiles.set(targetPath, { path: targetPath, content: file.content });
       }
-
-      // Check for existing file
-      if (existsSync(targetPath) && !force) {
-        result.warnings.push(`Skipped ${targetPath} — already exists. Use --force to overwrite.`);
-        continue;
-      }
-
-      // Back up existing file before overwriting
-      if (existsSync(targetPath) && force) {
-        const backupPath = backupFile(targetPath, codexHome);
-        result.warnings.push(`Backed up ${targetPath} → ${backupPath}`);
-      }
-
-      // Create parent directories and write the file
-      ensureDir(dirname(targetPath));
-      writeFileSync(targetPath, file.content, 'utf-8');
-      result.filesCreated.push(targetPath);
     }
+  }
+
+  for (const file of pendingFiles.values()) {
+    const targetPath = file.path;
+
+    if (dryRun) {
+      result.filesCreated.push(targetPath);
+      continue;
+    }
+
+    if (existsSync(targetPath) && !force) {
+      result.warnings.push(`Skipped ${targetPath} — already exists. Use --force to overwrite.`);
+      continue;
+    }
+
+    if (existsSync(targetPath) && force) {
+      const backupPath = backupFile(targetPath, codexHome);
+      result.warnings.push(`Backed up ${targetPath} → ${backupPath}`);
+    }
+
+    ensureDir(dirname(targetPath));
+    writeFileSync(targetPath, file.content, 'utf-8');
+    result.filesCreated.push(targetPath);
   }
 
   // Add standard manual steps that always apply
@@ -179,6 +221,14 @@ export async function migrate(inventory, opts) {
     'Test each MCP server with `codex --mcp-debug` to verify connectivity.',
     'Run `cc2codex validate` to check the generated files.',
   );
+  if (scope === 'global') {
+    const projectClaudeCount = inventory.claudeMdFiles.filter(file => !file.path.startsWith(inventory.claudeHome)).length;
+    if (projectClaudeCount > 0) {
+      result.manualSteps.push(
+        `${projectClaudeCount} project/workspace CLAUDE.md file(s) were not auto-applied. Review them manually or migrate them in a separate workflow.`
+      );
+    }
+  }
 
   // Generate migration report (unless dry-run)
   if (!dryRun) {
@@ -220,6 +270,6 @@ function generateReport(result, components) {
     }
   }
 
-  md += `\n---\n*Generated by [cc2codex](https://github.com/anthropics/cc2codex)*\n`;
+  md += `\n---\n*Generated by [cc2codex](https://github.com/ussumant/cc2codex)*\n`;
   return md;
 }
