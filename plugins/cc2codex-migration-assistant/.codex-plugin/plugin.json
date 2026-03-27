@@ -1,0 +1,32 @@
+{
+  "name": "cc2codex-migration-assistant",
+  "version": "0.1.0",
+  "description": "Codex-native wrapper for guiding Claude Code to Codex migrations with the cc2codex CLI.",
+  "author": {
+    "name": "cc2codex",
+    "email": "support@example.com",
+    "url": "https://github.com/ussumant/cc2codex"
+  },
+  "homepage": "https://github.com/ussumant/cc2codex",
+  "repository": "https://github.com/ussumant/cc2codex",
+  "license": "MIT",
+  "keywords": ["codex", "claude-code", "migration", "plugin"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Claude to Codex Migration Assistant",
+    "shortDescription": "Guide a staged Claude Code to Codex migration using cc2codex.",
+    "longDescription": "Uses the cc2codex CLI to assess readiness, run a safe trial migration, explain behavior changes, and guide live cutover with confirmations.",
+    "developerName": "OpenAI-compatible community plugin",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/ussumant/cc2codex",
+    "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
+    "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
+    "defaultPrompt": [
+      "Assess my Claude setup and recommend a staged Codex migration.",
+      "Run a safe trial migration into /tmp before touching ~/.codex.",
+      "Explain what changes in Codex for my hooks, skills, and MCP servers."
+    ],
+    "brandColor": "#111827"
+  }
+}

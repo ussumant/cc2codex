@@ -1,4 +1,9 @@
-import { mcpServerToToml, findClaudeReferences, normalizeMcpConfig } from '../utils.js';
+import {
+  mcpServerToToml,
+  findClaudeReferences,
+  normalizeMcpConfig,
+  isSensitiveEnvKey,
+} from '../utils.js';
 
 /**
  * Convert MCP server configs from Claude Code JSON format to Codex TOML format.
@@ -48,11 +53,11 @@ export function convertMcpServers(inventory) {
     // Warn about env vars that might contain API keys
     if (normalizedConfig.env) {
       const sensitiveKeys = Object.keys(normalizedConfig.env).filter(
-        k => /key|token|secret|password|api/i.test(k)
+        k => isSensitiveEnvKey(k)
       );
       if (sensitiveKeys.length > 0) {
         warnings.push(
-          `MCP server "${name}" has sensitive env vars (${sensitiveKeys.join(', ')}) — verify they are set in Codex environment`
+          `MCP server "${name}" has sensitive env vars (${sensitiveKeys.join(', ')}) — values were redacted; set them in the Codex environment`
         );
       }
     }

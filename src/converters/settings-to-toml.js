@@ -1,12 +1,4 @@
-import { settingsToToml, findClaudeReferences } from '../utils.js';
-
-function redactEnvValue(key) {
-  if (/key|token|secret|password|api/i.test(key)) {
-    return '<set in shell>';
-  }
-
-  return '<set in shell>';
-}
+import { settingsToToml, findClaudeReferences, redactEnvValue } from '../utils.js';
 
 /**
  * Convert Claude Code settings.json to Codex config.toml

@@ -47,6 +47,18 @@ export function fileSizeBytes(filePath) {
   }
 }
 
+export function isSensitiveEnvKey(key = '') {
+  return /key|token|secret|password|api/i.test(key);
+}
+
+export function redactEnvValue(key, value = '<set in shell>') {
+  if (isSensitiveEnvKey(key)) {
+    return '<set in shell>';
+  }
+
+  return value;
+}
+
 /**
  * Convert a JSON MCP server config to TOML string
  */
@@ -56,7 +68,7 @@ export function mcpServerToToml(name, config) {
   if (config.args) toml += `args = [${config.args.map(a => `"${a}"`).join(', ')}]\n`;
   if (config.env) {
     const envParts = Object.entries(config.env)
-      .map(([k, v]) => `${k} = "${v}"`)
+      .map(([k, v]) => `${k} = "${redactEnvValue(k, v)}"`)
       .join(', ');
     toml += `env = { ${envParts} }\n`;
   }

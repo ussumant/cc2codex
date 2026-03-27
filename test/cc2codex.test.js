@@ -10,6 +10,10 @@ import { scan } from '../src/scanner.js';
 import { migrate } from '../src/generator.js';
 import { bundlePlugins } from '../src/converters/plugin-bundler.js';
 import { validate } from '../src/validator.js';
+import { buildDoctorReport } from '../src/doctor.js';
+import { buildMigrationGuide } from '../src/guide.js';
+import { runStartFlow } from '../src/start.js';
+import { installMigrationPlugin, MIGRATION_PLUGIN_NAME } from '../src/plugin-installer.js';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 
@@ -35,6 +39,10 @@ function createFixture() {
     env: {
       OPENAI_API_KEY: 'sk-test-secret-value',
     },
+    permissions: {
+      allow: ['Read(**)', 'Bash(node *)'],
+      deny: ['Write(/etc/**)'],
+    },
     hooks: {
       SessionStart: [
         { hooks: [{ type: 'command', command: 'node --version' }] },
@@ -44,7 +52,14 @@ function createFixture() {
       ],
     },
     mcpServers: {
-      'chrome-devtools': { command: 'node', args: ['server.js'] },
+      'chrome-devtools': {
+        command: 'node',
+        args: ['server.js'],
+        env: {
+          API_TOKEN: 'super-secret-token',
+          EXPRESS_SERVER_URL: 'http://localhost:3000',
+        },
+      },
     },
   });
 
@@ -128,6 +143,9 @@ test('migrate writes merged config.toml and sibling .agents output', async (t) =
   assert.match(configToml, /demo-plugin/);
   assert.match(configToml, /OPENAI_API_KEY="<set in shell>"/);
   assert.doesNotMatch(configToml, /sk-test-secret-value/);
+  assert.match(configToml, /API_TOKEN = "<set in shell>"/);
+  assert.doesNotMatch(configToml, /super-secret-token/);
+  assert.match(configToml, /EXPRESS_SERVER_URL = "http:\/\/localhost:3000"/);
   assert.equal(existsSync(join(fixture.codexHome, 'mcp-servers.toml')), false);
   const hooksJson = JSON.parse(readFileSync(join(fixture.codexHome, 'hooks.json'), 'utf-8'));
   assert.equal(hooksJson.some(hook => hook.event === 'PermissionRequest'), false);
@@ -252,6 +270,80 @@ test('plan --json emits staged migration data with manual review items', (t) => 
   assert.equal(parsed.stages[0].id, 'global');
   assert.equal(parsed.stages[1].id, 'skills');
   assert.ok(parsed.manual.projectInstructionFiles.some(path => path.endsWith('project/CLAUDE.md')));
+});
+
+test('doctor report explains readiness, risks, and recommended flow', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const inventory = await scan(fixture.claudeHome, fixture.projectDir);
+  const report = await buildDoctorReport(inventory, {
+    codexHome: fixture.codexHome,
+  });
+
+  assert.equal(typeof report.summary.readinessScore, 'number');
+  assert.ok(report.risks.some(risk => risk.id === 'unsupported-hooks'));
+  assert.ok(report.education.some(note => note.area === 'permissions'));
+  assert.ok(report.education.some(note => note.area === 'agents'));
+  assert.equal(report.recommendedFlow[0].title, 'Read-only assessment');
+  assert.ok(report.recommendedFlow.some(step => step.title.includes('Trial global migration')));
+});
+
+test('guide builds a personalized step-by-step migration playbook', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const inventory = await scan(fixture.claudeHome, fixture.projectDir);
+  const guide = await buildMigrationGuide(inventory, {
+    codexHome: fixture.codexHome,
+    trialCodexHome: join(fixture.root, 'trial', '.codex'),
+    project: fixture.projectDir,
+  });
+
+  assert.equal(guide.steps[0].id, 'assess');
+  assert.equal(guide.steps[1].id, 'trial-global');
+  assert.ok(guide.steps.some(step => step.id === 'cutover'));
+  assert.ok(guide.steps[0].commands.some(command => command.includes('cc2codex doctor')));
+  assert.ok(guide.steps[1].commands.some(command => command.includes('--codex-home')));
+});
+
+test('start flow runs trial and live migration with dossier output in --yes mode', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const flow = await runStartFlow({
+    claudeHome: fixture.claudeHome,
+    codexHome: fixture.codexHome,
+    trialCodexHome: join(fixture.root, 'trial', '.codex'),
+    project: fixture.projectDir,
+    yes: true,
+    confirm: async () => true,
+  });
+
+  assert.equal(flow.result.status, 'completed');
+  assert.ok(flow.result.stages.some(stage => stage.id === 'trial-global' && stage.status === 'completed'));
+  assert.ok(flow.result.stages.some(stage => stage.id === 'live-cutover' && stage.status === 'completed'));
+  assert.equal(existsSync(join(fixture.root, 'trial', '.codex', 'migration-dossier.md')), true);
+  assert.equal(existsSync(join(fixture.codexHome, 'migration-dossier.md')), true);
+});
+
+test('install-plugin copies the bundled plugin and updates marketplace', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const pluginTarget = join(fixture.root, 'plugins', MIGRATION_PLUGIN_NAME);
+  const marketplacePath = join(fixture.root, '.agents', 'plugins', 'marketplace.json');
+
+  const result = installMigrationPlugin({
+    repoRoot: join(testDir, '..'),
+    targetDir: pluginTarget,
+    marketplacePath,
+  });
+
+  assert.equal(result.pluginName, MIGRATION_PLUGIN_NAME);
+  assert.equal(existsSync(join(pluginTarget, '.codex-plugin', 'plugin.json')), true);
+  const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
+  assert.ok(marketplace.plugins.some(plugin => plugin.name === MIGRATION_PLUGIN_NAME));
 });
 
 test('apply --global writes only global outputs and leaves project instructions untouched', (t) => {

@@ -1,0 +1,20 @@
+{
+  "name": "cc2codex-local",
+  "interface": {
+    "displayName": "cc2codex Local Plugins"
+  },
+  "plugins": [
+    {
+      "name": "cc2codex-migration-assistant",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cc2codex-migration-assistant"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

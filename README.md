@@ -12,12 +12,15 @@ An unofficial migration assistant for moving from [Claude Code](https://docs.ant
 
 ```bash
 npm install
-node bin/cc2codex.js scan                     # See what you have (read-only)
-node bin/cc2codex.js plan                     # Build a staged migration plan
-node bin/cc2codex.js apply --global           # Apply high-confidence global migration
-node bin/cc2codex.js apply --skills           # Apply skills and agent-to-skill conversion
-node bin/cc2codex.js validate                 # Verify the generated Codex setup
+node bin/cc2codex.js start --claude-home ~/.claude --codex-home ~/.codex
 ```
+
+`start` is the launch-grade guided flow:
+- assesses readiness
+- explains what changes in Codex for this setup
+- runs a safe trial migration into `/tmp/cc2codex-trial/.codex`
+- pauses before live cutover unless you pass `--yes`
+- writes a `migration-dossier.md` for review
 
 ## Release Status
 
@@ -42,6 +45,20 @@ If you want a no-surprises migration, use `plan` first, then `apply --global`, t
 
 ## Commands
 
+### `start` — Run the guided migration launch flow
+
+```bash
+cc2codex start [--claude-home ~/.claude] [--codex-home ~/.codex] [--trial-codex-home /tmp/cc2codex-trial/.codex] [--project ./my-project] [--yes] [--json]
+```
+
+This is the primary command for new users. It:
+- runs assessment and readiness scoring
+- generates a staged migration guide
+- performs a safe trial migration before touching the live Codex home
+- validates the trial output
+- asks for confirmation before live cutover
+- writes `migration-dossier.md` to the trial and live Codex homes
+
 ### `scan` — Discover your Claude Code setup
 
 ```bash
@@ -61,6 +78,39 @@ Outputs a two-stage migration plan:
 - **Skills** — skill conversion and agent-to-skill conversion
 
 It also highlights manual follow-up items like unsupported hook events and project `CLAUDE.md` files.
+
+### `doctor` — Get a personalized migration assessment
+
+```bash
+cc2codex doctor [--claude-home ~/.claude] [--project ./my-project] [--codex-home ~/.codex] [--json]
+```
+
+Outputs a read-only readiness report with:
+- migration readiness score and complexity
+- biggest risks based on your actual setup
+- what changes in Codex for permissions, hooks, agents, MCP, and skills
+- what likely improves after the move
+- a recommended staged flow for trial migration and real cutover
+
+### `guide` — Get a personalized step-by-step migration playbook
+
+```bash
+cc2codex guide [--claude-home ~/.claude] [--project ./my-project] [--codex-home ~/.codex] [--trial-codex-home /tmp/cc2codex-trial/.codex] [--json]
+```
+
+Outputs a read-only playbook with:
+- exact commands for assessment, trial migration, review, and live cutover
+- a temporary trial Codex home so you can validate before touching your real config
+- setup-specific review checkpoints for hooks, MCP auth, instructions, and agent workflows
+- a final post-cutover checklist
+
+### `install-plugin` — Install the bundled Codex migration plugin
+
+```bash
+cc2codex install-plugin [--target-dir ~/plugins/cc2codex-migration-assistant] [--marketplace-path ~/.agents/plugins/marketplace.json] [--force]
+```
+
+Installs the repo’s bundled Codex plugin wrapper and updates the local plugin marketplace entry so the migration assistant can be surfaced inside Codex.
 
 ### `apply` — Apply a staged migration scope
 
@@ -112,6 +162,23 @@ cc2codex validate [--codex-home ~/.codex]
 Checks: TOML/JSON validity, AGENTS.md size limits, hook script existence, MCP command availability, Claude-specific reference detection.
 
 ## Example Output
+
+```
+$ cc2codex start --claude-home ~/.claude --codex-home ~/.codex
+
+🚀 Starting guided Claude Code → Codex migration...
+
+Launch Summary:
+  Readiness:     50/100 (low)
+  Complexity:    advanced
+  Trial target:  /tmp/cc2codex-trial/.codex
+  Live target:   /Users/name/.codex
+
+Top risks:
+  • Some Claude hook events do not map directly to Codex
+  • Your setup uses agent-team style workflows
+  • Some MCP servers require secret re-entry
+```
 
 ```
 $ cc2codex scan
