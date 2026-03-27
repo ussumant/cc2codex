@@ -52,20 +52,20 @@ cc2codex migrate [--apply] [--force] [--only <component>]
 cc2codex bundle-plugins [--apply]
 ```
 
-Groups related skills + MCP servers into distributable Codex plugins. Default bundles:
+Groups related skills + MCP servers into distributable Codex plugins. The bundler auto-groups your skills by category. For example, if you have QA-related skills, it might produce:
 
-| Plugin | Skills | Description |
-|--------|--------|-------------|
-| `jarvis-productivity` | personal-os, streak, focus, ... | Personal productivity |
-| `lingotune-growth` | analytics, experiments, ... | Growth analytics |
-| `qa-toolkit` | qa, browse, canary, ... | QA & testing |
-| `ship-suite` | ship, review, deploy, ... | Release management |
-| `design-system` | frontend-design, ... | Design tools |
-| `content-engine` | seo, meta-ads, reddit, ... | Marketing |
-| `devops-safety` | investigate, cso, guard, ... | Security & debugging |
-| `monetization` | pricing, subscriptions, ... | Revenue strategy |
-| `engagement` | loops, notifications, ... | User engagement |
-| `resurrection` | churn, reactivation, ... | Win-back |
+```
+~/.agents/plugins/qa-toolkit/
+├── .codex-plugin/
+│   └── plugin.json
+├── skills/
+│   ├── qa/SKILL.md
+│   ├── browse/SKILL.md
+│   └── canary/SKILL.md
+└── .mcp.json              # bundled MCP servers
+```
+
+The default bundle definitions live in `src/converters/plugin-bundler.js` — edit `DEFAULT_BUNDLES` to customize groupings for your setup.
 
 ### `validate` — Verify migration
 
@@ -74,6 +74,57 @@ cc2codex validate [--codex-home ~/.codex]
 ```
 
 Checks: TOML/JSON validity, AGENTS.md size limits, hook script existence, MCP command availability, Claude-specific reference detection.
+
+## Example Output
+
+```
+$ cc2codex scan
+
+🔍 Scanning Claude Code setup...
+
+Claude Code Inventory:
+  Settings:      found
+  Skills:        82 files
+  Agents:        18 files
+  Hooks:         20 hooks
+  MCP Servers:   7 servers
+  Memory Files:  12 files
+  CLAUDE.md:     38 files
+  Env Vars:      3 vars
+
+  ⚠️  Combined CLAUDE.md size: 552.1KB (exceeds 32KB Codex limit)
+
+  Hooks by event:
+    SessionStart: 3
+    UserPromptSubmit: 4
+    PreToolUse: 8
+    PostToolUse: 1
+    Stop: 1
+```
+
+```
+$ cc2codex migrate
+
+🏜️  DRY RUN — no files will be written. Use --apply to execute.
+
+Would create:
+  ~ ~/.codex/config.toml
+  ~ ~/.codex/hooks.json
+  ~ ~/.codex/mcp-servers.toml
+  ~ ~/.agents/skills/browse/SKILL.md
+  ~ ~/.agents/skills/qa/SKILL.md
+  ~ ~/.agents/skills/ship/SKILL.md
+  ... (82 skills + 18 agents converted)
+
+Warnings:
+  ⚠️  Skill "my-skill": Contains Claude-specific references: Agent tool
+  ⚠️  2 AGENTS.md files exceed 32KB limit
+
+Manual steps required:
+  → Re-authenticate MCP servers
+  → Review AGENTS.md for remaining Claude-specific references
+  → Run cc2codex validate
+```
 
 ## Feature Mapping
 

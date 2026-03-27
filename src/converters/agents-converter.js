@@ -1,11 +1,13 @@
-import { parseFrontmatter, findClaudeReferences } from '../utils.js';
+import { join } from 'path';
+import { parseFrontmatter, findClaudeReferences, resolveAgentsHome } from '../utils.js';
 
 /**
  * Convert Claude Code agent definitions to Codex skills.
  * Codex has no agent concept (no parallel spawning), so agents become skills
  * with migration notes about the capability gap.
  */
-export function convertAgents(inventory) {
+export function convertAgents(inventory, opts = {}) {
+  const agentsHome = opts.agentsHome || resolveAgentsHome();
   const warnings = [];
   const skills = [];
 
@@ -67,7 +69,7 @@ export function convertAgents(inventory) {
 
     skills.push({
       name: safeName,
-      outputDir: `~/.agents/skills/${safeName}/`,
+      outputDir: join(agentsHome, 'skills', safeName),
       content,
       warnings: skillWarnings,
     });

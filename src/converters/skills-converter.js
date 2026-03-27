@@ -1,11 +1,13 @@
-import { parseFrontmatter, findClaudeReferences } from '../utils.js';
+import { join } from 'path';
+import { parseFrontmatter, findClaudeReferences, resolveAgentsHome } from '../utils.js';
 
 /**
  * Convert Claude Code skill files (single .md) to Codex skill directories (dir/SKILL.md).
  * Claude skills: ~/.claude/skills/{name}.md
  * Codex skills: ~/.agents/skills/{name}/SKILL.md
  */
-export function convertSkills(inventory) {
+export function convertSkills(inventory, opts = {}) {
+  const agentsHome = opts.agentsHome || resolveAgentsHome();
   const warnings = [];
   const skills = [];
 
@@ -55,7 +57,7 @@ export function convertSkills(inventory) {
 
     skills.push({
       name: safeName,
-      outputDir: `~/.agents/skills/${safeName}/`,
+      outputDir: join(agentsHome, 'skills', safeName),
       content,
       warnings: skillWarnings,
     });
