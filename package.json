@@ -1,0 +1,18 @@
+{
+  "name": "cc2codex",
+  "version": "1.0.0",
+  "description": "Migrate Claude Code setups to OpenAI Codex CLI",
+  "type": "module",
+  "bin": {
+    "cc2codex": "./bin/cc2codex.js"
+  },
+  "scripts": {
+    "start": "node bin/cc2codex.js"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "chalk": "^5.3.0",
+    "@iarna/toml": "^2.2.5",
+    "glob": "^11.0.0"
+  }
+}
