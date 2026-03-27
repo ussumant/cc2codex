@@ -144,6 +144,97 @@ Manual steps required:
 - **Plan Mode** — native Plan → Pair → Execute workflow
 - **OS-level Sandboxing** — Seatbelt (macOS) / bubblewrap (Linux)
 
+## Why Migrate Now
+
+**Your Claude Code setup isn't portable.** Every `CLAUDE.md`, every skill referencing `EnterPlanMode` or `TeamCreate`, every hook in `settings.json` — it's all proprietary format. If you've invested weeks building skills, agents, and workflows, that investment is currently locked to one vendor.
+
+**Three reasons to switch:**
+
+1. **Conversation limits** — Power users hit the wall mid-session. You start rationing prompts instead of working freely. Codex has a different throttling model.
+
+2. **Vendor lock-in** — Your 50+ skills, your hooks, your MCP configs, your project instructions — none of it transfers without a tool like this. cc2codex converts it in minutes.
+
+3. **Codex caught up** — Native Plan Mode (no plugin needed), a Plugin system that bundles skills + MCP + apps into versioned packages, OS-level sandboxing, open source (Apache-2.0, 68k stars).
+
+## Full Migration Guide
+
+### Prerequisites
+- Node.js 18+
+- An existing Claude Code setup (`~/.claude/` directory)
+- OpenAI Codex CLI installed: `npm i -g @openai/codex`
+
+### Step 1: Clone and install
+```bash
+git clone https://github.com/ussumant/cc2codex.git
+cd cc2codex
+npm install
+```
+
+### Step 2: Scan what you have
+```bash
+node bin/cc2codex.js scan
+```
+Read-only. Shows your skills count, agents, hooks by event, MCP servers, memory files, and CLAUDE.md combined size.
+
+### Step 3: Preview the migration
+```bash
+node bin/cc2codex.js migrate
+```
+Dry-run. Shows every file it would create, every warning, every manual step. **Nothing is written.**
+
+### Step 4: Run it for real
+```bash
+node bin/cc2codex.js migrate --apply
+```
+Creates:
+- `~/.codex/config.toml` — Codex settings (model, sandbox, approval policy)
+- `~/.codex/hooks.json` — your hooks in Codex format
+- `~/.codex/mcp-servers.toml` — MCP server configs
+- `~/.agents/skills/*/SKILL.md` — every skill as a Codex skill directory
+- `~/.codex/CONTEXT.md` — memory files consolidated
+- `*/AGENTS.md` — every CLAUDE.md converted with content cleanup
+
+### Step 5 (optional): Bundle into plugins
+```bash
+node bin/cc2codex.js bundle-plugins --apply
+```
+Groups related skills + MCP servers into Codex plugins — versioned, distributable packages you can share across projects.
+
+### Step 6: Validate
+```bash
+node bin/cc2codex.js validate
+```
+Checks TOML/JSON validity, AGENTS.md sizes, hook scripts exist, MCP commands installed.
+
+### Step 7: Test in Codex
+```bash
+cd your-project
+codex "Summarize current instructions"
+```
+If it reads back your project context — you're migrated.
+
+### Manual cleanup (the last 10%)
+The tool handles 90% automatically. The remaining manual work:
+
+- **MCP authentication** — some servers need re-authentication in Codex
+- **Claude-specific references** — the tool warns about these; search your AGENTS.md files for `CLAUDE.md`, `~/.claude/`, `Agent tool` and update
+- **Parallel agent workflows** — if you used `TeamCreate`, restructure to `codex exec` or multiple terminal sessions
+
+### Quick Reference: Claude Code → Codex
+
+| Action | Claude Code | Codex CLI |
+|--------|-------------|-----------|
+| Start a session | `claude` | `codex` |
+| Invoke a skill | `/skill-name` | `$skill-name` or `/skills` |
+| Plan mode | Plugin-based | `Shift+Tab` or `/plan` (native) |
+| Switch to execution | Exit plan mode | `Shift+Tab` to Pair/Execute |
+| Code review | `/review` skill | `/review` (built-in) |
+| Run shell command | `! command` | `! command` |
+| Full auto mode | `--dangerouslySkipPermissions` | `--full-auto` |
+| Project instructions | `CLAUDE.md` | `AGENTS.md` |
+| Settings | `~/.claude/settings.json` | `~/.codex/config.toml` |
+| Skills location | `~/.claude/skills/*.md` | `~/.agents/skills/*/SKILL.md` |
+
 ## Safety
 
 - **Dry-run by default** — nothing written without `--apply`
