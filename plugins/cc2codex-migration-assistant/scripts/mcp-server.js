@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 const SERVER_NAME = 'cc2codex-migration-assistant';
-const SERVER_VERSION = '0.5.0';
+const SERVER_VERSION = '0.6.0';
 const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const pluginRoot = resolve(__dirname, '..');
 
 function detectRepoRoot() {
   const configured = process.env.CC2CODEX_REPO_ROOT;
@@ -21,14 +22,17 @@ function detectRepoRoot() {
     return candidate;
   }
 
-  throw new Error(
-    'CC2CODEX_REPO_ROOT is not configured. Reinstall the plugin with `cc2codex install-plugin --force` from the repo clone.'
-  );
+  return null;
 }
 
-const repoRoot = detectRepoRoot();
-
 async function loadRepoModule(relativePath) {
+  const repoRoot = detectRepoRoot();
+  if (!repoRoot) {
+    throw new Error(
+      'The installed plugin no longer knows where the cc2codex repo clone lives. Reinstall it with `node bin/cc2codex.js install-plugin --force` from the repo clone.'
+    );
+  }
+
   return import(pathToFileURL(join(repoRoot, relativePath)).href);
 }
 
@@ -38,6 +42,11 @@ function defaultClaudeHome() {
 
 function defaultCodexHome() {
   return join(homedir(), '.codex');
+}
+
+function marketplacePathForPlugin(targetDir = pluginRoot) {
+  const codexHome = dirname(dirname(targetDir));
+  return join(dirname(codexHome), '.agents', 'plugins', 'marketplace.json');
 }
 
 function defaultTrialCodexHome() {
@@ -77,7 +86,167 @@ function nextStepsForLiveResult(status, codexHome) {
   ];
 }
 
+function readJsonSafe(filePath) {
+  try {
+    if (!existsSync(filePath)) return null;
+    return JSON.parse(readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function buildVerificationGateResponse(verification) {
+  if (verification.code === 'no_claude_home') {
+    return {
+      status: 'needs_attention',
+      title: "We couldn't find a Claude Code setup",
+      summary: 'This plugin is installed correctly, but there is no Claude Code data at the expected location yet.',
+      needsAttention: verification.checks.map(check => check.detail),
+      nextAction: {
+        label: 'Choose another Claude home or stop here',
+        tool: 'start_claude_import_onboarding',
+        args: {
+          codexHome: verification.paths.targetDir ? defaultCodexHome() : defaultCodexHome(),
+        },
+      },
+      repairSteps: verification.repairSteps,
+    };
+  }
+
+  return {
+    status: 'blocked',
+    title: 'This migration plugin needs repair first',
+    summary: 'Codex found the migration assistant, but the local install is stale or incomplete and should be repaired before importing anything.',
+    needsAttention: verification.checks.map(check => check.detail),
+    repairSteps: verification.repairSteps,
+    nextAction: {
+      label: 'Reinstall the plugin from the repo clone',
+      command: 'node bin/cc2codex.js install-plugin --force',
+    },
+  };
+}
+
+function fallbackVerification(paths) {
+  const checks = [];
+  const mcpConfigPath = join(pluginRoot, '.mcp.json');
+  const mcpConfig = readJsonSafe(mcpConfigPath);
+  const serverConfig = mcpConfig?.mcpServers?.[SERVER_NAME];
+  const serverScript = Array.isArray(serverConfig?.args) ? serverConfig.args[0] : join(pluginRoot, 'scripts', 'mcp-server.js');
+  const repoRoot = serverConfig?.env?.CC2CODEX_REPO_ROOT ? resolve(serverConfig.env.CC2CODEX_REPO_ROOT) : detectRepoRoot();
+  const marketplacePath = marketplacePathForPlugin(pluginRoot);
+  const marketplace = readJsonSafe(marketplacePath);
+
+  if (!mcpConfig) {
+    checks.push({
+      id: 'plugin-mcp-missing',
+      status: 'blocked',
+      label: 'Installed plugin has a valid .mcp.json',
+      detail: `Expected valid MCP config at ${mcpConfigPath}`,
+    });
+  }
+  if (!existsSync(serverScript)) {
+    checks.push({
+      id: 'server-script-missing',
+      status: 'blocked',
+      label: 'Installed plugin MCP server script exists',
+      detail: `Expected MCP server script at ${serverScript}`,
+    });
+  }
+  if (!repoRoot || !existsSync(join(repoRoot, 'package.json'))) {
+    checks.push({
+      id: 'repo-root-stale',
+      status: 'blocked',
+      label: 'Configured cc2codex repo clone is still available',
+      detail: `The configured repo root is missing or stale${repoRoot ? `: ${repoRoot}` : '.'}`,
+    });
+  }
+  if (!marketplace?.plugins?.some?.(plugin => plugin.name === SERVER_NAME)) {
+    checks.push({
+      id: 'marketplace-entry-missing',
+      status: 'blocked',
+      label: 'Marketplace includes the migration plugin',
+      detail: `No ${SERVER_NAME} entry found in ${marketplacePath}`,
+    });
+  }
+  if (!existsSync(paths.claudeHome)) {
+    checks.push({
+      id: 'claude-home-missing',
+      status: 'needs_attention',
+      label: 'Claude Code home exists on this machine',
+      detail: `No Claude setup found at ${paths.claudeHome}`,
+    });
+  }
+
+  if (checks.length === 0) {
+    checks.push({
+      id: 'plugin-install-ready',
+      status: 'ready',
+      label: 'Plugin install looks healthy',
+      detail: 'The plugin, marketplace wiring, repo path, and Claude home are all available.',
+    });
+  }
+
+  const status = checks.some(check => check.status === 'blocked')
+    ? 'blocked'
+    : checks.some(check => check.status === 'needs_attention')
+      ? 'needs_attention'
+      : 'ready';
+
+  return {
+    status,
+    summary: status === 'ready'
+      ? 'The migration plugin looks healthy and ready to use.'
+      : status === 'needs_attention'
+        ? 'The plugin can start, but there is something you should fix or confirm first.'
+        : 'The migration plugin needs repair before it can reliably import your Claude setup.',
+    code: checks.some(check => check.id === 'claude-home-missing')
+      ? 'no_claude_home'
+      : 'stale_plugin_install',
+    paths: {
+      targetDir: pluginRoot,
+      marketplacePath,
+      claudeHome: paths.claudeHome,
+      repoRoot,
+      mcpConfigPath,
+      serverScript,
+    },
+    checks,
+    repairSteps: checks.some(check => check.id === 'claude-home-missing')
+      ? [`Check that Claude Code data exists at ${paths.claudeHome}, or pass a different Claude home path.`]
+      : ['Reinstall the plugin from your cc2codex repo clone: `node bin/cc2codex.js install-plugin --force`'],
+  };
+}
+
+async function runPluginVerification(paths) {
+  const repoRoot = detectRepoRoot();
+  if (!repoRoot || !existsSync(join(repoRoot, 'src', 'plugin-verifier.js'))) {
+    return fallbackVerification(paths);
+  }
+
+  try {
+    const { verifyPluginInstall } = await import(pathToFileURL(join(repoRoot, 'src', 'plugin-verifier.js')).href);
+    return verifyPluginInstall({
+      targetDir: pluginRoot,
+      marketplacePath: marketplacePathForPlugin(pluginRoot),
+      claudeHome: paths.claudeHome,
+    });
+  } catch {
+    return fallbackVerification(paths);
+  }
+}
+
 const TOOL_DEFINITIONS = [
+  {
+    name: 'verify_plugin_install',
+    description: 'Check that the migration plugin, repo connection, marketplace entry, and Claude home are ready.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        claudeHome: { type: 'string', description: 'Path to the Claude home directory. Defaults to ~/.claude.' },
+      },
+    },
+  },
   {
     name: 'start_claude_import_onboarding',
     description: 'Plain-language starting point for importing a Claude Code setup into Codex.',
@@ -241,7 +410,15 @@ async function handleToolCall(name, args = {}) {
   const paths = resolvePaths(args);
 
   switch (name) {
+    case 'verify_plugin_install':
+      return runPluginVerification(paths);
+
     case 'start_claude_import_onboarding': {
+      const verification = await runPluginVerification(paths);
+      if (verification.status === 'blocked' || verification.code === 'no_claude_home') {
+        return buildVerificationGateResponse(verification);
+      }
+
       const [{ scan }, { buildDoctorReport }, { buildOnboardingStart }] = await Promise.all([
         loadRepoModule('src/scanner.js'),
         loadRepoModule('src/doctor.js'),
@@ -253,10 +430,16 @@ async function handleToolCall(name, args = {}) {
         inventory,
         doctorReport,
         paths,
+        verification,
       });
     }
 
     case 'preview_claude_import': {
+      const verification = await runPluginVerification(paths);
+      if (verification.status === 'blocked' || verification.code === 'no_claude_home') {
+        return buildVerificationGateResponse(verification);
+      }
+
       const [{ scan }, { runTrialFlow }, { buildPreviewSummary }] = await Promise.all([
         loadRepoModule('src/scanner.js'),
         loadRepoModule('src/start.js'),
@@ -280,6 +463,11 @@ async function handleToolCall(name, args = {}) {
     }
 
     case 'review_import_readiness': {
+      const verification = await runPluginVerification(paths);
+      if (verification.status === 'blocked' || verification.code === 'no_claude_home') {
+        return buildVerificationGateResponse(verification);
+      }
+
       const [{ scan }, { buildDoctorReport }, { validate }, { buildReadinessReview }] = await Promise.all([
         loadRepoModule('src/scanner.js'),
         loadRepoModule('src/doctor.js'),
@@ -298,6 +486,11 @@ async function handleToolCall(name, args = {}) {
     }
 
     case 'finish_claude_import': {
+      const verification = await runPluginVerification(paths);
+      if (verification.status === 'blocked' || verification.code === 'no_claude_home') {
+        return buildVerificationGateResponse(verification);
+      }
+
       const previewDossierPath = join(paths.trialCodexHome, 'migration-dossier.md');
       if (!existsSync(previewDossierPath)) {
         return {

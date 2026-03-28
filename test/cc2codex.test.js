@@ -14,6 +14,7 @@ import { buildDoctorReport } from '../src/doctor.js';
 import { buildMigrationGuide } from '../src/guide.js';
 import { runStartFlow } from '../src/start.js';
 import { installMigrationPlugin, MIGRATION_PLUGIN_NAME, defaultPluginInstallDir } from '../src/plugin-installer.js';
+import { verifyPluginInstall } from '../src/plugin-verifier.js';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 
@@ -108,27 +109,47 @@ function cleanupFixture(t, fixture) {
   });
 }
 
-function startPluginMcpServer(t) {
-  const serverPath = join(
-    testDir,
-    '..',
-    'plugins',
-    'cc2codex-migration-assistant',
-    'scripts',
-    'mcp-server.js'
-  );
+function startPluginMcpServer(t, options = {}) {
   const repoRoot = join(testDir, '..');
+  const installRoot = mkdtempSync(join(tmpdir(), 'cc2codex-mcp-'));
+  const pluginTarget = join(installRoot, '.codex', 'plugins', MIGRATION_PLUGIN_NAME);
+  const marketplacePath = join(installRoot, '.agents', 'plugins', 'marketplace.json');
+
+  installMigrationPlugin({
+    repoRoot,
+    targetDir: pluginTarget,
+    marketplacePath,
+  });
+
+  if (options.repoRootOverrideInMcp) {
+    const mcpConfigPath = join(pluginTarget, '.mcp.json');
+    const mcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf-8'));
+    mcpConfig.mcpServers['cc2codex-migration-assistant'].env.CC2CODEX_REPO_ROOT = options.repoRootOverrideInMcp;
+    writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+  }
+
+  if (options.marketplacePathOverride) {
+    const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
+    marketplace.plugins[0].source.path = options.marketplacePathOverride;
+    writeFileSync(marketplacePath, JSON.stringify(marketplace, null, 2));
+  }
+
+  const serverPath = join(pluginTarget, 'scripts', 'mcp-server.js');
+  const installedMcpConfig = JSON.parse(readFileSync(join(pluginTarget, '.mcp.json'), 'utf-8'));
+  const installedEnv = installedMcpConfig.mcpServers['cc2codex-migration-assistant'].env || {};
   const child = spawn('node', [serverPath], {
-    cwd: repoRoot,
+    cwd: options.cwd || installRoot,
     env: {
       ...process.env,
-      CC2CODEX_REPO_ROOT: repoRoot,
+      ...installedEnv,
+      ...(options.env || {}),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
   t.after(() => {
     child.kill();
+    rmSync(installRoot, { recursive: true, force: true });
   });
 
   let stdout = Buffer.alloc(0);
@@ -425,6 +446,108 @@ test('install-plugin default target path uses the Codex plugin directory', () =>
   assert.match(defaultPluginInstallDir(), /\.codex\/plugins\/cc2codex-migration-assistant$/);
 });
 
+test('verify-plugin-install passes for a healthy install', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const pluginTarget = join(fixture.root, '.codex', 'plugins', MIGRATION_PLUGIN_NAME);
+  const marketplacePath = join(fixture.root, '.agents', 'plugins', 'marketplace.json');
+
+  installMigrationPlugin({
+    repoRoot: join(testDir, '..'),
+    targetDir: pluginTarget,
+    marketplacePath,
+  });
+
+  const result = verifyPluginInstall({
+    targetDir: pluginTarget,
+    marketplacePath,
+    claudeHome: fixture.claudeHome,
+  });
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.code, 'plugin_ready');
+});
+
+test('verify-plugin-install flags stale repo roots clearly', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const pluginTarget = join(fixture.root, '.codex', 'plugins', MIGRATION_PLUGIN_NAME);
+  const marketplacePath = join(fixture.root, '.agents', 'plugins', 'marketplace.json');
+
+  installMigrationPlugin({
+    repoRoot: join(testDir, '..'),
+    targetDir: pluginTarget,
+    marketplacePath,
+  });
+
+  const mcpConfigPath = join(pluginTarget, '.mcp.json');
+  const mcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf-8'));
+  mcpConfig.mcpServers['cc2codex-migration-assistant'].env.CC2CODEX_REPO_ROOT = join(fixture.root, 'missing-repo');
+  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+
+  const result = verifyPluginInstall({
+    targetDir: pluginTarget,
+    marketplacePath,
+    claudeHome: fixture.claudeHome,
+  });
+
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.code, 'stale_plugin_install');
+  assert.ok(result.repairSteps.some(step => step.includes('install-plugin --force')));
+});
+
+test('verify-plugin-install reports missing Claude home without blocking the plugin', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const pluginTarget = join(fixture.root, '.codex', 'plugins', MIGRATION_PLUGIN_NAME);
+  const marketplacePath = join(fixture.root, '.agents', 'plugins', 'marketplace.json');
+
+  installMigrationPlugin({
+    repoRoot: join(testDir, '..'),
+    targetDir: pluginTarget,
+    marketplacePath,
+  });
+
+  const result = verifyPluginInstall({
+    targetDir: pluginTarget,
+    marketplacePath,
+    claudeHome: join(fixture.root, 'does-not-exist'),
+  });
+
+  assert.equal(result.status, 'needs_attention');
+  assert.equal(result.code, 'no_claude_home');
+});
+
+test('verify-plugin-install catches marketplace path mismatches', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const pluginTarget = join(fixture.root, '.codex', 'plugins', MIGRATION_PLUGIN_NAME);
+  const marketplacePath = join(fixture.root, '.agents', 'plugins', 'marketplace.json');
+
+  installMigrationPlugin({
+    repoRoot: join(testDir, '..'),
+    targetDir: pluginTarget,
+    marketplacePath,
+  });
+
+  const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
+  marketplace.plugins[0].source.path = './plugins/wrong-plugin-path';
+  writeFileSync(marketplacePath, JSON.stringify(marketplace, null, 2));
+
+  const result = verifyPluginInstall({
+    targetDir: pluginTarget,
+    marketplacePath,
+    claudeHome: fixture.claudeHome,
+  });
+
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.code, 'marketplace_mismatch');
+});
+
 test('migration plugin MCP server lists migration tools over stdio', async (t) => {
   const { sendMessage, readMessage } = startPluginMcpServer(t);
 
@@ -455,6 +578,7 @@ test('migration plugin MCP server lists migration tools over stdio', async (t) =
   });
   const toolsResponse = await readMessage();
   const toolNames = toolsResponse.result.tools.map(tool => tool.name);
+  assert.ok(toolNames.includes('verify_plugin_install'));
   assert.ok(toolNames.includes('start_claude_import_onboarding'));
   assert.ok(toolNames.includes('preview_claude_import'));
   assert.ok(toolNames.includes('review_import_readiness'));
@@ -510,6 +634,51 @@ test('onboarding tool returns plain-language preview-first guidance', async (t) 
   assert.match(payload.summary, /safe preview/i);
   assert.equal(payload.nextAction.tool, 'preview_claude_import');
   assert.ok(payload.whatChangesInCodex.some(line => /approval|sandbox/i.test(line)));
+});
+
+test('verify_plugin_install reports stale repo wiring through MCP without crashing', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const { sendMessage, readMessage } = startPluginMcpServer(t, {
+    repoRootOverrideInMcp: join(fixture.root, 'missing-repo'),
+  });
+
+  sendMessage({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'test-client', version: '1.0.0' },
+    },
+  });
+  await readMessage();
+
+  sendMessage({
+    jsonrpc: '2.0',
+    method: 'notifications/initialized',
+    params: {},
+  });
+
+  sendMessage({
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: {
+      name: 'verify_plugin_install',
+      arguments: {
+        claudeHome: fixture.claudeHome,
+      },
+    },
+  });
+
+  const response = await readMessage();
+  const payload = response.result.structuredContent;
+
+  assert.equal(payload.status, 'blocked');
+  assert.equal(payload.code, 'stale_plugin_install');
 });
 
 test('finish onboarding tool refuses live import until a preview exists', async (t) => {

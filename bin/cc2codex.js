@@ -12,6 +12,7 @@ import { buildDoctorReport } from '../src/doctor.js';
 import { buildMigrationGuide } from '../src/guide.js';
 import { runStartFlow } from '../src/start.js';
 import { installMigrationPlugin } from '../src/plugin-installer.js';
+import { verifyPluginInstall } from '../src/plugin-verifier.js';
 import { resolveClaudeHome, resolveCodexHome } from '../src/utils.js';
 
 const program = new Command();
@@ -259,6 +260,29 @@ program
       force: opts.force || false,
     });
     printPluginInstallResult(result);
+  });
+
+program
+  .command('verify-plugin-install')
+  .description('Check that the installed plugin, repo path, marketplace entry, and Claude home are ready')
+  .option('--target-dir <path>', 'Installed plugin directory (default: ~/.codex/plugins/cc2codex-migration-assistant)')
+  .option('--marketplace-path <path>', 'Marketplace file to inspect (default: ~/.agents/plugins/marketplace.json)')
+  .option('--claude-home <path>', 'Claude home to verify (default: ~/.claude)', resolveClaudeHome())
+  .option('--json', 'Output structured JSON')
+  .action(async (opts) => {
+    const result = verifyPluginInstall({
+      targetDir: opts.targetDir,
+      marketplacePath: opts.marketplacePath,
+      claudeHome: opts.claudeHome,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(chalk.cyan.bold('\n🧪 Verifying Codex migration plugin install...\n'));
+    printPluginVerificationResult(result);
   });
 
 program
@@ -511,6 +535,44 @@ function printPluginInstallResult(result) {
   console.log('  1. Restart the Codex app');
   console.log('  2. Open /plugins and enable "Claude to Codex Migration Assistant"');
   console.log('  3. Ask Codex to use the plugin tools to assess or import your Claude setup');
+  console.log('');
+}
+
+function printPluginVerificationResult(result) {
+  const color = result.status === 'ready'
+    ? chalk.green
+    : result.status === 'needs_attention'
+      ? chalk.yellow
+      : chalk.red;
+
+  console.log(chalk.bold('Plugin verification:'));
+  console.log(`  Status:      ${color(result.status)}`);
+  console.log(`  Summary:     ${result.summary}`);
+  console.log(`  Plugin:      ${chalk.cyan(result.paths.targetDir)}`);
+  console.log(`  Marketplace: ${chalk.cyan(result.paths.marketplacePath)}`);
+  console.log(`  Claude home: ${chalk.cyan(result.paths.claudeHome)}`);
+  if (result.paths.repoRoot) {
+    console.log(`  Repo root:   ${chalk.cyan(result.paths.repoRoot)}`);
+  }
+
+  console.log(chalk.bold('\nChecks:'));
+  for (const check of result.checks) {
+    const symbol = check.status === 'ready'
+      ? chalk.green('✓')
+      : check.status === 'needs_attention'
+        ? chalk.yellow('!')
+        : chalk.red('✗');
+    console.log(`  ${symbol} ${check.label}`);
+    console.log(`    ${check.detail}`);
+  }
+
+  if (result.repairSteps?.length) {
+    console.log(chalk.bold('\nRepair steps:'));
+    for (const step of result.repairSteps) {
+      console.log(`  • ${step}`);
+    }
+  }
+
   console.log('');
 }
 

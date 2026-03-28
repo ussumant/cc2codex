@@ -124,7 +124,7 @@ function liveFiles(paths) {
   ];
 }
 
-export function buildOnboardingStart({ inventory, doctorReport, paths }) {
+export function buildOnboardingStart({ inventory, doctorReport, paths, verification = null }) {
   const status = statusFromState({
     readinessLevel: doctorReport.summary.readinessLevel,
     risks: doctorReport.risks,
@@ -138,6 +138,10 @@ export function buildOnboardingStart({ inventory, doctorReport, paths }) {
       claudeHome: paths.claudeHome,
       items: buildDetectedItems(inventory, doctorReport),
     },
+    pluginHealth: verification ? {
+      status: verification.status,
+      summary: verification.summary,
+    } : undefined,
     whatWillBeImported: buildTransferItems(doctorReport),
     whatChangesInCodex: doctorReport.education.map(simplifyEducationNote),
     needsAttention: doctorReport.risks.map(simplifyRisk),

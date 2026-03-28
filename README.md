@@ -8,9 +8,73 @@ An unofficial migration assistant for moving from [Claude Code](https://docs.ant
 
 **What it does not promise:** perfect semantic conversion of every Claude-specific workflow. It is optimized for speed, safety, and getting you to a working Codex setup fast.
 
+## What Imports Well
+
+- reusable Claude instructions and `CLAUDE.md` guidance
+- skills that map cleanly into Codex skill directories
+- agent workflows that can be simplified into Codex skills
+- high-confidence hooks
+- MCP server structure and local command configuration
+
+## What Still Needs Review
+
+- MCP tokens, API keys, and other secrets still need to be re-entered
+- Claude-only hook events may need cleanup or removal
+- team-style Claude agent workflows may need redesign
+- large or very Claude-specific instruction sets may need trimming after import
+
 ## Quick Start
 
 If you only copy one section, copy this one.
+
+### Recommended For Codex App Users
+
+If you are already using the Codex app and just want help bringing over your Claude Code setup, use this path.
+
+1. Clone the repo and install dependencies:
+
+```bash
+git clone https://github.com/ussumant/cc2codex.git
+cd cc2codex
+npm install
+```
+
+2. Install the Codex plugin:
+
+```bash
+node bin/cc2codex.js install-plugin --force
+```
+
+3. Restart the Codex app.
+4. Open `/plugins`.
+5. Enable `Claude to Codex Migration Assistant`.
+6. In Codex, paste this:
+
+```text
+Help me bring my Claude Code setup into Codex.
+```
+
+That starts the non-technical flow:
+- Codex finds your old Claude setup automatically
+- Codex creates a safe preview in `/tmp/cc2codex-trial/.codex`
+- Codex explains what was imported and what still needs attention
+- Codex only updates your real `~/.codex` after you approve it
+
+If Codex says the plugin install is stale or broken, run:
+
+```bash
+node bin/cc2codex.js install-plugin --force
+```
+
+After the preview, the two most useful follow-up prompts are:
+
+```text
+Show me what was imported and what still needs my attention.
+```
+
+```text
+Finish importing my Claude setup into Codex.
+```
 
 ### Option A — Run from the repo folder
 
@@ -230,6 +294,12 @@ Important:
 - the installer writes the current repo path into the installed plugin so it can call this clone directly
 - if you move or delete the repo later, run `cc2codex install-plugin --force` again from the new repo location
 
+To check whether the plugin install is still healthy:
+
+```bash
+cc2codex verify-plugin-install
+```
+
 ### Use It Inside the Codex App
 
 After installing the plugin:
@@ -241,6 +311,16 @@ After installing the plugin:
 
 ```text
 Help me bring my Claude Code setup into Codex.
+```
+
+Recommended follow-up prompts:
+
+```text
+Show me what was imported and what still needs my attention.
+```
+
+```text
+Finish importing my Claude setup into Codex.
 ```
 
 For non-technical users, the intended flow inside Codex is:
@@ -256,9 +336,35 @@ If you want a more explicit prompt:
 Use the Claude to Codex Migration Assistant to preview my Codex setup before changing anything real.
 ```
 
+If you want a more explicit review prompt:
+
+```text
+Use the Claude to Codex Migration Assistant to review my preview import and tell me what still needs attention.
+```
+
 The plugin now supports two layers:
 - non-technical onboarding tools for “bring my Claude setup into Codex”
 - technical migration tools for power users who want detailed control
+
+### `verify-plugin-install` — Check plugin health before using it in Codex
+
+```bash
+cc2codex verify-plugin-install [--target-dir ~/.codex/plugins/cc2codex-migration-assistant] [--marketplace-path ~/.agents/plugins/marketplace.json] [--claude-home ~/.claude] [--json]
+```
+
+Use this when:
+- the plugin does not appear in Codex
+- the repo was moved to another folder
+- Codex says the migration assistant needs repair
+- you want to confirm the plugin can still find your Claude setup
+
+It checks:
+- the installed plugin directory
+- the plugin `.mcp.json`
+- the MCP server script path
+- the connected repo root
+- the marketplace entry
+- whether a Claude setup exists at the expected location
 
 ### `apply` — Apply a staged migration scope
 
