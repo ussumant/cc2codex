@@ -10,6 +10,42 @@ An unofficial migration assistant for moving from [Claude Code](https://docs.ant
 
 ## Quick Start
 
+If you only copy one section, copy this one.
+
+### Option A — Run from the repo folder
+
+```bash
+git clone https://github.com/ussumant/cc2codex.git
+cd cc2codex
+npm install
+node bin/cc2codex.js start --claude-home ~/.claude --codex-home ~/.codex
+```
+
+Important:
+- Run `node bin/cc2codex.js ...` **from inside the `cc2codex` folder**
+- If you run that command from some other directory, Node will look for the wrong `bin/cc2codex.js`
+
+### Option B — Install the command once, then use `cc2codex`
+
+```bash
+git clone https://github.com/ussumant/cc2codex.git
+cd cc2codex
+npm install
+npm link
+cc2codex start --claude-home ~/.claude --codex-home ~/.codex
+```
+
+This is the easiest option if you are not comfortable remembering the repo path.
+
+### What happens when you run `start`
+
+- `cc2codex` looks at your Claude Code setup in `~/.claude`
+- it explains what will change in Codex
+- it creates a **safe trial migration** in `/tmp/cc2codex-trial/.codex`
+- it validates that trial output
+- it stops and asks before touching your real `~/.codex`
+- it writes a `migration-dossier.md` so you can review what happened
+
 ```bash
 npm install
 node bin/cc2codex.js start --claude-home ~/.claude --codex-home ~/.codex
@@ -21,6 +57,82 @@ node bin/cc2codex.js start --claude-home ~/.claude --codex-home ~/.codex
 - runs a safe trial migration into `/tmp/cc2codex-trial/.codex`
 - pauses before live cutover unless you pass `--yes`
 - writes a `migration-dossier.md` for review
+
+## If You Get An Error
+
+### Error: `Cannot find module '.../bin/cc2codex.js'`
+
+That means you are running:
+
+```bash
+node bin/cc2codex.js ...
+```
+
+from the wrong directory.
+
+Fix it by either:
+
+```bash
+cd /full/path/to/cc2codex
+node bin/cc2codex.js start --claude-home ~/.claude --codex-home ~/.codex
+```
+
+or:
+
+```bash
+npm link
+cc2codex start --claude-home ~/.claude --codex-home ~/.codex
+```
+
+### `npm audit` warnings
+
+Those are unrelated to the `Cannot find module` error.
+They do **not** mean the migration command itself is broken.
+
+## Non-Technical Walkthrough
+
+If you do not use the terminal much, follow these exact steps:
+
+1. Open Terminal.
+2. Copy and paste this:
+
+```bash
+git clone https://github.com/ussumant/cc2codex.git
+```
+
+3. Then copy and paste this:
+
+```bash
+cd cc2codex
+```
+
+4. Then copy and paste this:
+
+```bash
+npm install
+```
+
+5. Then copy and paste this:
+
+```bash
+node bin/cc2codex.js start --claude-home ~/.claude --codex-home ~/.codex
+```
+
+6. Read the output.
+   - It will first create a safe trial migration.
+   - It should **not** change your real Codex setup until it asks.
+
+7. If you want a simpler command for the future, run:
+
+```bash
+npm link
+```
+
+After that, you can use:
+
+```bash
+cc2codex start --claude-home ~/.claude --codex-home ~/.codex
+```
 
 ## Release Status
 
@@ -276,19 +388,37 @@ cd cc2codex
 npm install
 ```
 
-### Step 2: Scan what you have
+### Step 2: Run the guided flow
+```bash
+node bin/cc2codex.js start --claude-home ~/.claude --codex-home ~/.codex
+```
+
+This is the recommended path for almost everyone.
+
+### Step 3 (optional): Install the command globally on your machine
+```bash
+npm link
+```
+
+Then you can use:
+
+```bash
+cc2codex start --claude-home ~/.claude --codex-home ~/.codex
+```
+
+### Step 4 (advanced): Scan what you have
 ```bash
 node bin/cc2codex.js scan
 ```
 Read-only. Shows your skills count, agents, hooks by event, MCP servers, memory files, and CLAUDE.md combined size.
 
-### Step 3: Build the migration plan
+### Step 5 (advanced): Build the migration plan
 ```bash
 node bin/cc2codex.js plan
 ```
 Shows the staged migration, warning counts, runtime prerequisites, and which files still need manual review. **Nothing is written.**
 
-### Step 4: Apply the global migration
+### Step 6 (advanced): Apply the global migration
 ```bash
 node bin/cc2codex.js apply --global
 ```
@@ -298,33 +428,33 @@ Creates the high-confidence global Codex setup:
 - `~/.codex/CONTEXT.md` — memory files consolidated
 - `~/.codex/AGENTS.md` — global instruction file converted from Claude
 
-### Step 5: Apply skills
+### Step 7 (advanced): Apply skills
 ```bash
 node bin/cc2codex.js apply --skills
 ```
 Creates:
 - `~/.agents/skills/*/SKILL.md` — converted skills and agent-to-skill outputs
 
-### Step 6 (optional): Bundle into plugins
+### Step 8 (optional): Bundle into plugins
 ```bash
 node bin/cc2codex.js bundle-plugins --apply
 ```
 Groups related skills + MCP servers into Codex plugins — versioned, distributable packages you can share across projects.
 
-### Step 7: Validate
+### Step 9: Validate
 ```bash
 node bin/cc2codex.js validate
 ```
 Checks TOML/JSON validity, AGENTS.md sizes, nested skill frontmatter, hook scripts, MCP commands, and plugin manifests/marketplace output.
 
-### Step 8: Test in Codex
+### Step 10: Test in Codex
 ```bash
 cd your-project
 codex "Summarize current instructions"
 ```
 If it reads back your project context — you're migrated.
 
-### Step 9: Run the local test suite
+### Step 11: Run the local test suite
 ```bash
 npm test
 ```
