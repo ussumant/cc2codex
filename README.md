@@ -2,7 +2,7 @@
 
 Bring a Claude Code setup into Codex with a safe preview first.
 
-`cc2codex` is a migration assistant for people moving from Claude Code to Codex. It works best as a Codex app plugin for non-technical users, with CLI commands available for advanced users and debugging.
+`cc2codex` is a migration assistant for people moving from Claude Code to Codex. The most reliable way to use it today is through the Codex CLI plugin flow, with the Codex app UI as a secondary path if local plugins appear there on your machine.
 
 ## What Imports Well
 
@@ -23,7 +23,7 @@ Bring a Claude Code setup into Codex with a safe preview first.
 
 If you only copy one section, copy this one.
 
-### For Codex App Users
+### Recommended: Codex CLI Plugin Flow
 
 1. Clone the repo and install dependencies:
 
@@ -39,10 +39,26 @@ npm install
 node bin/cc2codex.js install-plugin --force
 ```
 
-3. Restart the Codex app.
-4. Open `/plugins`.
-5. Enable `Claude to Codex Migration Assistant`.
-6. In Codex, paste this:
+3. Check that the install is healthy:
+
+```bash
+node bin/cc2codex.js verify-plugin-install
+```
+
+4. Start Codex in Terminal:
+
+```bash
+codex
+```
+
+5. Inside Codex, open the plugin manager:
+
+```text
+/plugins
+```
+
+6. Enable `Claude to Codex Migration Assistant`.
+7. Start a new thread and paste this:
 
 ```text
 Help me bring my Claude Code setup into Codex.
@@ -70,9 +86,18 @@ If Codex says the plugin install is stale or broken, run:
 node bin/cc2codex.js install-plugin --force
 ```
 
-### CLI Fallback
+### Optional: Codex App UI
 
-If you want to run the migration outside the Codex app:
+If local plugins show up in the Codex app on your machine, you can also:
+
+1. Restart the Codex app.
+2. Open the Plugins page in the UI.
+3. Look for `Claude to Codex Migration Assistant`.
+4. Enable it and use the same prompts shown above.
+
+If the plugin does not appear there, use the Codex CLI flow above instead.
+
+### CLI Fallback
 
 ```bash
 node bin/cc2codex.js start --claude-home ~/.claude --codex-home ~/.codex
@@ -91,17 +116,22 @@ node bin/cc2codex.js install-plugin --force
 ### Check whether the plugin install is healthy
 
 ```bash
-cc2codex verify-plugin-install
+node bin/cc2codex.js verify-plugin-install
 ```
 
-### Plugin does not appear in Codex
+### Plugin does not appear in the Codex app
 
-1. Restart the Codex app.
-2. Open `/plugins`.
-3. If it is still missing, run:
+Use the Codex CLI route instead:
 
 ```bash
-cc2codex verify-plugin-install
+node bin/cc2codex.js verify-plugin-install
+codex
+```
+
+Then inside Codex CLI:
+
+```text
+/plugins
 ```
 
 ### Codex says it cannot find your Claude setup
@@ -120,7 +150,7 @@ from the wrong directory. Fix it by `cd`-ing into the repo folder first, or by r
 
 ## Advanced Commands
 
-Use these only if you want more control than the app flow provides.
+Use these only if you want more control than the standard Codex CLI plugin flow provides.
 
 ### `start`
 
