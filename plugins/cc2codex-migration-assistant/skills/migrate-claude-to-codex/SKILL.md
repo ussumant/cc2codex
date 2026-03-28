@@ -5,30 +5,28 @@ description: Guide a Claude Code to Codex migration using the local cc2codex CLI
 
 # Claude to Codex Migration Assistant
 
-Use this skill when the user wants to migrate from Claude Code to Codex and the `cc2codex` CLI is available locally.
+Use this skill when the user wants to migrate from Claude Code to Codex and the bundled `cc2codex` plugin tools are available in Codex.
 
 ## Workflow
 
-1. Start with read-only understanding:
-   - run `cc2codex scan`
-   - run `cc2codex doctor`
-   - run `cc2codex guide`
-2. Prefer `cc2codex start` for the guided launch flow.
+1. Start with the MCP tools instead of shell commands:
+   - `scan_claude_setup`
+   - `assess_claude_migration`
+   - `build_migration_guide`
+2. Prefer `run_trial_import` before any live write.
 3. Always use a temporary Codex home first unless the user explicitly asks for live cutover.
-4. Explain:
+4. Only use `run_live_import` after the trial output has been reviewed and the user wants the real `~/.codex` updated.
+5. Explain:
    - what changes in Codex
    - what improves
    - what needs manual redesign
-5. Never write to the real `~/.codex` without clear user confirmation.
+6. Never write to the real `~/.codex` without clear user confirmation.
 
-## Default commands
+## Default tool flow
 
-```bash
-cc2codex start --claude-home ~/.claude --codex-home ~/.codex --trial-codex-home /tmp/cc2codex-trial/.codex
-```
-
-If the user wants a lighter read-only path:
-
-```bash
-cc2codex guide --claude-home ~/.claude --codex-home ~/.codex --trial-codex-home /tmp/cc2codex-trial/.codex
-```
+- Read-only inventory: `scan_claude_setup`
+- Readiness and risks: `assess_claude_migration`
+- Step-by-step plan: `build_migration_guide`
+- Safe staged import: `run_trial_import`
+- Live validation: `validate_codex_home`
+- Real cutover after approval: `run_live_import`

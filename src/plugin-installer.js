@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, join, relative } from 'path';
 import { homedir } from 'os';
 
 export const MIGRATION_PLUGIN_NAME = 'cc2codex-migration-assistant';
@@ -28,6 +28,29 @@ function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, 'utf-8'));
 }
 
+function buildInstalledMcpConfig({ repoRoot, targetDir }) {
+  return {
+    mcpServers: {
+      'cc2codex-migration-assistant': {
+        command: 'node',
+        args: [join(targetDir, 'scripts', 'mcp-server.js')],
+        env: {
+          CC2CODEX_REPO_ROOT: repoRoot,
+        },
+      },
+    },
+  };
+}
+
+function relativePluginPath(targetDir, marketplacePath) {
+  const raw = relative(dirname(marketplacePath), targetDir);
+  if (!raw || raw === '.') {
+    return './';
+  }
+
+  return raw.startsWith('.') ? raw : `./${raw}`;
+}
+
 export function installMigrationPlugin(opts = {}) {
   const {
     repoRoot = repoRootFromModule(),
@@ -50,6 +73,11 @@ export function installMigrationPlugin(opts = {}) {
 
   ensureDir(dirname(targetDir));
   cpSync(sourceDir, targetDir, { recursive: true });
+  writeFileSync(
+    join(targetDir, '.mcp.json'),
+    `${JSON.stringify(buildInstalledMcpConfig({ repoRoot, targetDir }), null, 2)}\n`,
+    'utf-8'
+  );
 
   ensureDir(dirname(marketplacePath));
   let marketplace;
@@ -69,7 +97,7 @@ export function installMigrationPlugin(opts = {}) {
     name: MIGRATION_PLUGIN_NAME,
     source: {
       source: 'local',
-      path: `./plugins/${MIGRATION_PLUGIN_NAME}`,
+      path: relativePluginPath(targetDir, marketplacePath),
     },
     policy: {
       installation: 'AVAILABLE',
@@ -93,5 +121,6 @@ export function installMigrationPlugin(opts = {}) {
     sourceDir,
     targetDir,
     marketplacePath,
+    repoRoot,
   };
 }

@@ -10,7 +10,7 @@ function ensureDir(dirPath) {
   mkdirSync(dirPath, { recursive: true });
 }
 
-function validationSummary(results) {
+export function validationSummary(results) {
   const summary = {
     passed: 0,
     warnings: 0,
@@ -51,7 +51,7 @@ function nextStepsForState(result) {
   ];
 }
 
-function generateDossier({ doctorReport, guide, result, paths }) {
+export function generateDossier({ doctorReport, guide, result, paths }) {
   const lines = [
     '# cc2codex Migration Dossier',
     '',
@@ -135,11 +135,24 @@ function generateDossier({ doctorReport, guide, result, paths }) {
   return `${lines.join('\n')}\n`;
 }
 
-function writeDossier(codexHome, data) {
+export function writeDossier(codexHome, data) {
   ensureDir(codexHome);
   const dossierPath = join(codexHome, 'migration-dossier.md');
   writeFileSync(dossierPath, generateDossier(data), 'utf-8');
   return dossierPath;
+}
+
+export async function runTrialFlow(opts) {
+  let confirmationCount = 0;
+
+  return runStartFlow({
+    ...opts,
+    yes: false,
+    confirm: async () => {
+      confirmationCount += 1;
+      return confirmationCount < 3;
+    },
+  });
 }
 
 export async function runStartFlow(opts) {

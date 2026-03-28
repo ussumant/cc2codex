@@ -505,6 +505,12 @@ function printPluginInstallResult(result) {
   console.log(`  Source:      ${chalk.cyan(result.sourceDir)}`);
   console.log(`  Target:      ${chalk.cyan(result.targetDir)}`);
   console.log(`  Marketplace: ${chalk.cyan(result.marketplacePath)}`);
+  console.log(`  Repo root:   ${chalk.cyan(result.repoRoot)}`);
+  console.log('');
+  console.log(chalk.bold('Next in Codex:'));
+  console.log('  1. Restart the Codex app');
+  console.log('  2. Open /plugins and enable "Claude to Codex Migration Assistant"');
+  console.log('  3. Ask Codex to use the plugin tools to assess or import your Claude setup');
   console.log('');
 }
 

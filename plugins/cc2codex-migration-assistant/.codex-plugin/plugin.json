@@ -12,10 +12,11 @@
   "license": "MIT",
   "keywords": ["codex", "claude-code", "migration", "plugin"],
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Claude to Codex Migration Assistant",
     "shortDescription": "Guide a staged Claude Code to Codex migration using cc2codex.",
-    "longDescription": "Uses the cc2codex CLI to assess readiness, run a safe trial migration, explain behavior changes, and guide live cutover with confirmations.",
+    "longDescription": "Uses a bundled MCP server backed by the cc2codex repo to assess readiness, run safe trial imports, validate output, and guide live cutover inside Codex.",
     "developerName": "OpenAI-compatible community plugin",
     "category": "Developer Tools",
     "capabilities": ["Interactive", "Write"],

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { scan } from '../src/scanner.js';
@@ -342,12 +342,116 @@ test('install-plugin copies the bundled plugin and updates marketplace', async (
 
   assert.equal(result.pluginName, MIGRATION_PLUGIN_NAME);
   assert.equal(existsSync(join(pluginTarget, '.codex-plugin', 'plugin.json')), true);
+  assert.equal(existsSync(join(pluginTarget, '.mcp.json')), true);
+  const mcpConfig = JSON.parse(readFileSync(join(pluginTarget, '.mcp.json'), 'utf-8'));
+  assert.equal(
+    mcpConfig.mcpServers['cc2codex-migration-assistant'].env.CC2CODEX_REPO_ROOT,
+    join(testDir, '..')
+  );
   const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
-  assert.ok(marketplace.plugins.some(plugin => plugin.name === MIGRATION_PLUGIN_NAME));
+  const pluginEntry = marketplace.plugins.find(plugin => plugin.name === MIGRATION_PLUGIN_NAME);
+  assert.ok(pluginEntry);
+  assert.equal(pluginEntry.source.path, '../../plugins/cc2codex-migration-assistant');
 });
 
 test('install-plugin default target path uses the Codex plugin directory', () => {
   assert.match(defaultPluginInstallDir(), /\.codex\/plugins\/cc2codex-migration-assistant$/);
+});
+
+test('migration plugin MCP server lists migration tools over stdio', async (t) => {
+  const serverPath = join(
+    testDir,
+    '..',
+    'plugins',
+    'cc2codex-migration-assistant',
+    'scripts',
+    'mcp-server.js'
+  );
+  const repoRoot = join(testDir, '..');
+  const child = spawn('node', [serverPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      CC2CODEX_REPO_ROOT: repoRoot,
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  t.after(() => {
+    child.kill();
+  });
+
+  let stdout = Buffer.alloc(0);
+  let stderr = '';
+  child.stdout.on('data', chunk => {
+    stdout = Buffer.concat([stdout, chunk]);
+  });
+  child.stderr.on('data', chunk => {
+    stderr += chunk.toString('utf-8');
+  });
+
+  const readMessage = async () => {
+    const timeout = Date.now() + 5000;
+    while (Date.now() < timeout) {
+      const headerEnd = stdout.indexOf('\r\n\r\n');
+      if (headerEnd !== -1) {
+        const headerText = stdout.slice(0, headerEnd).toString('utf-8');
+        const lengthLine = headerText
+          .split('\r\n')
+          .find(line => line.toLowerCase().startsWith('content-length:'));
+        if (lengthLine) {
+          const contentLength = Number.parseInt(lengthLine.split(':')[1].trim(), 10);
+          const messageEnd = headerEnd + 4 + contentLength;
+          if (stdout.length >= messageEnd) {
+            const body = stdout.slice(headerEnd + 4, messageEnd).toString('utf-8');
+            stdout = stdout.slice(messageEnd);
+            return JSON.parse(body);
+          }
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+
+    throw new Error(`Timed out waiting for MCP server response. stderr=${stderr}`);
+  };
+
+  const sendMessage = (message) => {
+    const payload = Buffer.from(JSON.stringify(message), 'utf-8');
+    child.stdin.write(`Content-Length: ${payload.length}\r\n\r\n`);
+    child.stdin.write(payload);
+  };
+
+  sendMessage({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'test-client', version: '1.0.0' },
+    },
+  });
+  const initResponse = await readMessage();
+  assert.equal(initResponse.result.serverInfo.name, 'cc2codex-migration-assistant');
+
+  sendMessage({
+    jsonrpc: '2.0',
+    method: 'notifications/initialized',
+    params: {},
+  });
+
+  sendMessage({
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/list',
+    params: {},
+  });
+  const toolsResponse = await readMessage();
+  const toolNames = toolsResponse.result.tools.map(tool => tool.name);
+  assert.ok(toolNames.includes('scan_claude_setup'));
+  assert.ok(toolNames.includes('run_trial_import'));
+  assert.ok(toolNames.includes('run_live_import'));
 });
 
 test('apply --global writes only global outputs and leaves project instructions untouched', (t) => {

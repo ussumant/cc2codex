@@ -222,7 +222,40 @@ Outputs a read-only playbook with:
 cc2codex install-plugin [--target-dir ~/.codex/plugins/cc2codex-migration-assistant] [--marketplace-path ~/.agents/plugins/marketplace.json] [--force]
 ```
 
-Installs the repo’s bundled Codex plugin wrapper into the official local Codex plugin path and updates the local plugin marketplace entry so the migration assistant can be surfaced inside Codex.
+Installs the repo’s bundled Codex plugin into the official local Codex plugin path and updates the local plugin marketplace entry so the migration assistant can be surfaced inside Codex.
+
+Important:
+- this plugin now includes a bundled MCP server, so Codex can call real migration tools from inside the app
+- you do **not** need `npm link` just to use the plugin
+- the installer writes the current repo path into the installed plugin so it can call this clone directly
+- if you move or delete the repo later, run `cc2codex install-plugin --force` again from the new repo location
+
+### Use It Inside the Codex App
+
+After installing the plugin:
+
+1. Restart the Codex app.
+2. Open `/plugins`.
+3. Enable `Claude to Codex Migration Assistant`.
+4. Then ask Codex something like:
+
+```text
+Use the Claude to Codex Migration Assistant to assess my Claude setup and run a safe trial import into /tmp before touching ~/.codex.
+```
+
+Or if you want a read-only pass first:
+
+```text
+Use the Claude to Codex Migration Assistant to scan my Claude setup, explain migration risks, and build a step-by-step guide.
+```
+
+The plugin exposes real tools inside Codex for:
+- scanning your Claude setup
+- assessing migration readiness
+- building a migration guide
+- running a safe trial import
+- validating a Codex home
+- running the real import after you approve it
 
 ### `apply` — Apply a staged migration scope
 

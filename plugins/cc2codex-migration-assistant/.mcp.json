@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cc2codex-migration-assistant": {
+      "command": "node",
+      "args": ["./scripts/mcp-server.js"],
+      "env": {
+        "CC2CODEX_REPO_ROOT": "."
+      }
+    }
+  }
+}
