@@ -237,25 +237,28 @@ After installing the plugin:
 1. Restart the Codex app.
 2. Open `/plugins`.
 3. Enable `Claude to Codex Migration Assistant`.
-4. Then ask Codex something like:
+4. Then ask Codex something simple like:
 
 ```text
-Use the Claude to Codex Migration Assistant to assess my Claude setup and run a safe trial import into /tmp before touching ~/.codex.
+Help me bring my Claude Code setup into Codex.
 ```
 
-Or if you want a read-only pass first:
+For non-technical users, the intended flow inside Codex is:
+- Codex finds your old Claude setup automatically
+- Codex explains what it found in plain language
+- Codex creates a safe preview import in `/tmp/cc2codex-trial/.codex`
+- Codex tells you what still needs attention
+- Codex only updates your real `~/.codex` after you approve it
+
+If you want a more explicit prompt:
 
 ```text
-Use the Claude to Codex Migration Assistant to scan my Claude setup, explain migration risks, and build a step-by-step guide.
+Use the Claude to Codex Migration Assistant to preview my Codex setup before changing anything real.
 ```
 
-The plugin exposes real tools inside Codex for:
-- scanning your Claude setup
-- assessing migration readiness
-- building a migration guide
-- running a safe trial import
-- validating a Codex home
-- running the real import after you approve it
+The plugin now supports two layers:
+- non-technical onboarding tools for “bring my Claude setup into Codex”
+- technical migration tools for power users who want detailed control
 
 ### `apply` — Apply a staged migration scope
 

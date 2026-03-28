@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 const SERVER_NAME = 'cc2codex-migration-assistant';
-const SERVER_VERSION = '0.4.0';
+const SERVER_VERSION = '0.5.0';
 const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -78,6 +78,67 @@ function nextStepsForLiveResult(status, codexHome) {
 }
 
 const TOOL_DEFINITIONS = [
+  {
+    name: 'start_claude_import_onboarding',
+    description: 'Plain-language starting point for importing a Claude Code setup into Codex.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        claudeHome: { type: 'string', description: 'Path to the Claude home directory. Defaults to ~/.claude.' },
+        codexHome: { type: 'string', description: 'Target Codex home. Defaults to ~/.codex.' },
+        trialCodexHome: { type: 'string', description: 'Temporary preview location. Defaults to /tmp/cc2codex-trial/.codex.' },
+        project: { type: 'string', description: 'Optional project directory to scan for project-local Claude files.' },
+      },
+    },
+  },
+  {
+    name: 'preview_claude_import',
+    description: 'Create a safe preview import into /tmp without touching the real Codex setup.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        claudeHome: { type: 'string' },
+        codexHome: { type: 'string' },
+        trialCodexHome: { type: 'string' },
+        project: { type: 'string' },
+        force: { type: 'boolean', description: 'Overwrite existing preview files if they already exist.' },
+      },
+    },
+  },
+  {
+    name: 'review_import_readiness',
+    description: 'Explain, in plain language, whether the Claude import is ready to preview or finish.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        claudeHome: { type: 'string' },
+        codexHome: { type: 'string' },
+        trialCodexHome: { type: 'string' },
+        project: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'finish_claude_import',
+    description: 'Import the Claude setup into the real Codex home after the preview has been reviewed.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        claudeHome: { type: 'string' },
+        codexHome: { type: 'string' },
+        trialCodexHome: { type: 'string' },
+        project: { type: 'string' },
+        force: { type: 'boolean' },
+      },
+    },
+    annotations: {
+      destructiveHint: true,
+    },
+  },
   {
     name: 'scan_claude_setup',
     description: 'Read-only inventory of a Claude Code setup.',
@@ -180,6 +241,167 @@ async function handleToolCall(name, args = {}) {
   const paths = resolvePaths(args);
 
   switch (name) {
+    case 'start_claude_import_onboarding': {
+      const [{ scan }, { buildDoctorReport }, { buildOnboardingStart }] = await Promise.all([
+        loadRepoModule('src/scanner.js'),
+        loadRepoModule('src/doctor.js'),
+        loadRepoModule('src/onboarding.js'),
+      ]);
+      const inventory = await scan(paths.claudeHome, paths.project);
+      const doctorReport = await buildDoctorReport(inventory, { codexHome: paths.codexHome });
+      return buildOnboardingStart({
+        inventory,
+        doctorReport,
+        paths,
+      });
+    }
+
+    case 'preview_claude_import': {
+      const [{ scan }, { runTrialFlow }, { buildPreviewSummary }] = await Promise.all([
+        loadRepoModule('src/scanner.js'),
+        loadRepoModule('src/start.js'),
+        loadRepoModule('src/onboarding.js'),
+      ]);
+      const inventory = await scan(paths.claudeHome, paths.project);
+      const flow = await runTrialFlow({
+        claudeHome: paths.claudeHome,
+        codexHome: paths.codexHome,
+        trialCodexHome: paths.trialCodexHome,
+        project: paths.project,
+        force: paths.force,
+      });
+
+      return buildPreviewSummary({
+        inventory,
+        doctorReport: flow.doctorReport,
+        result: flow.result,
+        paths,
+      });
+    }
+
+    case 'review_import_readiness': {
+      const [{ scan }, { buildDoctorReport }, { validate }, { buildReadinessReview }] = await Promise.all([
+        loadRepoModule('src/scanner.js'),
+        loadRepoModule('src/doctor.js'),
+        loadRepoModule('src/validator.js'),
+        loadRepoModule('src/onboarding.js'),
+      ]);
+      const inventory = await scan(paths.claudeHome, paths.project);
+      const doctorReport = await buildDoctorReport(inventory, { codexHome: paths.codexHome });
+
+      return buildReadinessReview({
+        inventory,
+        doctorReport,
+        paths,
+        validate,
+      });
+    }
+
+    case 'finish_claude_import': {
+      const previewDossierPath = join(paths.trialCodexHome, 'migration-dossier.md');
+      if (!existsSync(previewDossierPath)) {
+        return {
+          status: 'needs_attention',
+          title: 'Preview the import first',
+          summary: 'Before changing your real Codex setup, Codex needs to create a safe preview import.',
+          needsAttention: [
+            `No preview import was found at ${paths.trialCodexHome}.`,
+          ],
+          nextAction: {
+            label: 'Create a safe preview import',
+            tool: 'preview_claude_import',
+            args: {
+              claudeHome: paths.claudeHome,
+              codexHome: paths.codexHome,
+              trialCodexHome: paths.trialCodexHome,
+              project: paths.project,
+            },
+          },
+        };
+      }
+
+      const [{ scan }, { buildDoctorReport }, { buildMigrationGuide }, { migrate }, { validate }, { validationSummary, writeDossier }, { buildFinishSummary }] = await Promise.all([
+        loadRepoModule('src/scanner.js'),
+        loadRepoModule('src/doctor.js'),
+        loadRepoModule('src/guide.js'),
+        loadRepoModule('src/generator.js'),
+        loadRepoModule('src/validator.js'),
+        loadRepoModule('src/start.js'),
+        loadRepoModule('src/onboarding.js'),
+      ]);
+
+      const inventory = await scan(paths.claudeHome, paths.project);
+      const doctorReport = await buildDoctorReport(inventory, { codexHome: paths.codexHome });
+      const guide = await buildMigrationGuide(inventory, {
+        codexHome: paths.codexHome,
+        trialCodexHome: paths.trialCodexHome,
+        project: paths.project,
+      });
+
+      const liveGlobal = await migrate(inventory, {
+        dryRun: false,
+        force: paths.force,
+        only: null,
+        codexHome: paths.codexHome,
+        scope: 'global',
+      });
+      const liveSkills = await migrate(inventory, {
+        dryRun: false,
+        force: paths.force,
+        only: null,
+        codexHome: paths.codexHome,
+        scope: 'skills',
+      });
+      const liveValidation = await validate(paths.codexHome);
+      const liveValidationSummary = validationSummary(liveValidation);
+
+      const result = {
+        status: liveValidationSummary.failed > 0 ? 'blocked' : 'completed',
+        stoppedAt: null,
+        stages: [
+          {
+            id: 'assessment',
+            title: 'Assessment',
+            status: 'completed',
+            readiness: doctorReport.summary,
+          },
+          {
+            id: 'live-cutover',
+            title: 'Live Cutover',
+            status: liveValidationSummary.failed > 0 ? 'blocked' : 'completed',
+            filesCreated: [...liveGlobal.filesCreated, ...liveSkills.filesCreated],
+            warnings: [...liveGlobal.warnings, ...liveSkills.warnings],
+            validation: liveValidationSummary,
+          },
+        ],
+        nextSteps: nextStepsForLiveResult(
+          liveValidationSummary.failed > 0 ? 'blocked' : 'completed',
+          paths.codexHome
+        ),
+        dossierPaths: [],
+      };
+
+      const dossierPath = writeDossier(paths.codexHome, {
+        doctorReport,
+        guide,
+        result,
+        paths: {
+          claudeHome: paths.claudeHome,
+          trialCodexHome: paths.trialCodexHome,
+          codexHome: paths.codexHome,
+        },
+      });
+      result.dossierPaths.push(dossierPath);
+
+      return buildFinishSummary({
+        inventory,
+        doctorReport,
+        result,
+        validation: liveValidation,
+        paths,
+      });
+    }
+
     case 'scan_claude_setup': {
       const { scan } = await loadRepoModule('src/scanner.js');
       return scan(paths.claudeHome, paths.project);

@@ -1,32 +1,38 @@
 ---
 name: migrate-claude-to-codex
-description: Guide a Claude Code to Codex migration using the local cc2codex CLI with assessment, safe trial migration, validation, and explicit confirmation before live cutover.
+description: Help someone move from Claude Code to Codex with a safe preview, plain-language guidance, and optional advanced migration tools.
 ---
 
 # Claude to Codex Migration Assistant
 
-Use this skill when the user wants to migrate from Claude Code to Codex and the bundled `cc2codex` plugin tools are available in Codex.
+Use this skill when the user wants to bring a Claude Code setup into Codex and the bundled `cc2codex` plugin tools are available in Codex.
 
 ## Workflow
 
-1. Start with the MCP tools instead of shell commands:
+1. Default to the non-technical onboarding tools first:
+   - `start_claude_import_onboarding`
+   - `preview_claude_import`
+   - `review_import_readiness`
+   - `finish_claude_import`
+2. Speak in plain language:
+   - what was found
+   - what will be brought over
+   - what changes in Codex
+   - what needs attention from the user
+3. Always create a safe preview before writing to the real `~/.codex`.
+4. Only use `finish_claude_import` after the user is ready to complete the move.
+5. Keep the technical tools available when the user explicitly wants detail or troubleshooting:
    - `scan_claude_setup`
    - `assess_claude_migration`
    - `build_migration_guide`
-2. Prefer `run_trial_import` before any live write.
-3. Always use a temporary Codex home first unless the user explicitly asks for live cutover.
-4. Only use `run_live_import` after the trial output has been reviewed and the user wants the real `~/.codex` updated.
-5. Explain:
-   - what changes in Codex
-   - what improves
-   - what needs manual redesign
-6. Never write to the real `~/.codex` without clear user confirmation.
+   - `plan_migration`
+   - `run_trial_import`
+   - `run_live_import`
+   - `validate_codex_home`
 
 ## Default tool flow
 
-- Read-only inventory: `scan_claude_setup`
-- Readiness and risks: `assess_claude_migration`
-- Step-by-step plan: `build_migration_guide`
-- Safe staged import: `run_trial_import`
-- Live validation: `validate_codex_home`
-- Real cutover after approval: `run_live_import`
+- Start onboarding: `start_claude_import_onboarding`
+- Safe preview: `preview_claude_import`
+- Review before finish: `review_import_readiness`
+- Complete the import after approval: `finish_claude_import`

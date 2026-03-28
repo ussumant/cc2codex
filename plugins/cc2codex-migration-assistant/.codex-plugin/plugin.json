@@ -1,7 +1,7 @@
 {
   "name": "cc2codex-migration-assistant",
   "version": "0.1.0",
-  "description": "Codex-native wrapper for guiding Claude Code to Codex migrations with the cc2codex CLI.",
+  "description": "Import a Claude Code setup into Codex with a safe preview, plain-language guidance, and optional advanced migration tools.",
   "author": {
     "name": "cc2codex",
     "email": "support@example.com",
@@ -15,8 +15,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Claude to Codex Migration Assistant",
-    "shortDescription": "Guide a staged Claude Code to Codex migration using cc2codex.",
-    "longDescription": "Uses a bundled MCP server backed by the cc2codex repo to assess readiness, run safe trial imports, validate output, and guide live cutover inside Codex.",
+    "shortDescription": "Bring your Claude Code setup into Codex with a safe preview first.",
+    "longDescription": "Helps people moving from Claude Code to Codex import their instructions, skills, and connected tools with a safe preview, plain-language explanations, and a guided finish step.",
     "developerName": "OpenAI-compatible community plugin",
     "category": "Developer Tools",
     "capabilities": ["Interactive", "Write"],
@@ -24,9 +24,9 @@
     "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
     "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
     "defaultPrompt": [
-      "Assess my Claude setup and recommend a staged Codex migration.",
-      "Run a safe trial migration into /tmp before touching ~/.codex.",
-      "Explain what changes in Codex for my hooks, skills, and MCP servers."
+      "Help me bring my Claude Code setup into Codex.",
+      "Preview my Codex setup before changing anything real.",
+      "Explain what will change and what I may need to reconnect."
     ],
     "brandColor": "#111827"
   }

@@ -108,6 +108,73 @@ function cleanupFixture(t, fixture) {
   });
 }
 
+function startPluginMcpServer(t) {
+  const serverPath = join(
+    testDir,
+    '..',
+    'plugins',
+    'cc2codex-migration-assistant',
+    'scripts',
+    'mcp-server.js'
+  );
+  const repoRoot = join(testDir, '..');
+  const child = spawn('node', [serverPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      CC2CODEX_REPO_ROOT: repoRoot,
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  t.after(() => {
+    child.kill();
+  });
+
+  let stdout = Buffer.alloc(0);
+  let stderr = '';
+  child.stdout.on('data', chunk => {
+    stdout = Buffer.concat([stdout, chunk]);
+  });
+  child.stderr.on('data', chunk => {
+    stderr += chunk.toString('utf-8');
+  });
+
+  const readMessage = async () => {
+    const timeout = Date.now() + 5000;
+    while (Date.now() < timeout) {
+      const headerEnd = stdout.indexOf('\r\n\r\n');
+      if (headerEnd !== -1) {
+        const headerText = stdout.slice(0, headerEnd).toString('utf-8');
+        const lengthLine = headerText
+          .split('\r\n')
+          .find(line => line.toLowerCase().startsWith('content-length:'));
+        if (lengthLine) {
+          const contentLength = Number.parseInt(lengthLine.split(':')[1].trim(), 10);
+          const messageEnd = headerEnd + 4 + contentLength;
+          if (stdout.length >= messageEnd) {
+            const body = stdout.slice(headerEnd + 4, messageEnd).toString('utf-8');
+            stdout = stdout.slice(messageEnd);
+            return JSON.parse(body);
+          }
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+
+    throw new Error(`Timed out waiting for MCP server response. stderr=${stderr}`);
+  };
+
+  const sendMessage = (message) => {
+    const payload = Buffer.from(JSON.stringify(message), 'utf-8');
+    child.stdin.write(`Content-Length: ${payload.length}\r\n\r\n`);
+    child.stdin.write(payload);
+  };
+
+  return { sendMessage, readMessage };
+}
+
 test('scan captures directory-based project assets and multiple memory indexes', async (t) => {
   const fixture = createFixture();
   cleanupFixture(t, fixture);
@@ -359,68 +426,7 @@ test('install-plugin default target path uses the Codex plugin directory', () =>
 });
 
 test('migration plugin MCP server lists migration tools over stdio', async (t) => {
-  const serverPath = join(
-    testDir,
-    '..',
-    'plugins',
-    'cc2codex-migration-assistant',
-    'scripts',
-    'mcp-server.js'
-  );
-  const repoRoot = join(testDir, '..');
-  const child = spawn('node', [serverPath], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      CC2CODEX_REPO_ROOT: repoRoot,
-    },
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  t.after(() => {
-    child.kill();
-  });
-
-  let stdout = Buffer.alloc(0);
-  let stderr = '';
-  child.stdout.on('data', chunk => {
-    stdout = Buffer.concat([stdout, chunk]);
-  });
-  child.stderr.on('data', chunk => {
-    stderr += chunk.toString('utf-8');
-  });
-
-  const readMessage = async () => {
-    const timeout = Date.now() + 5000;
-    while (Date.now() < timeout) {
-      const headerEnd = stdout.indexOf('\r\n\r\n');
-      if (headerEnd !== -1) {
-        const headerText = stdout.slice(0, headerEnd).toString('utf-8');
-        const lengthLine = headerText
-          .split('\r\n')
-          .find(line => line.toLowerCase().startsWith('content-length:'));
-        if (lengthLine) {
-          const contentLength = Number.parseInt(lengthLine.split(':')[1].trim(), 10);
-          const messageEnd = headerEnd + 4 + contentLength;
-          if (stdout.length >= messageEnd) {
-            const body = stdout.slice(headerEnd + 4, messageEnd).toString('utf-8');
-            stdout = stdout.slice(messageEnd);
-            return JSON.parse(body);
-          }
-        }
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 25));
-    }
-
-    throw new Error(`Timed out waiting for MCP server response. stderr=${stderr}`);
-  };
-
-  const sendMessage = (message) => {
-    const payload = Buffer.from(JSON.stringify(message), 'utf-8');
-    child.stdin.write(`Content-Length: ${payload.length}\r\n\r\n`);
-    child.stdin.write(payload);
-  };
+  const { sendMessage, readMessage } = startPluginMcpServer(t);
 
   sendMessage({
     jsonrpc: '2.0',
@@ -449,9 +455,107 @@ test('migration plugin MCP server lists migration tools over stdio', async (t) =
   });
   const toolsResponse = await readMessage();
   const toolNames = toolsResponse.result.tools.map(tool => tool.name);
+  assert.ok(toolNames.includes('start_claude_import_onboarding'));
+  assert.ok(toolNames.includes('preview_claude_import'));
+  assert.ok(toolNames.includes('review_import_readiness'));
+  assert.ok(toolNames.includes('finish_claude_import'));
   assert.ok(toolNames.includes('scan_claude_setup'));
   assert.ok(toolNames.includes('run_trial_import'));
   assert.ok(toolNames.includes('run_live_import'));
+});
+
+test('onboarding tool returns plain-language preview-first guidance', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const { sendMessage, readMessage } = startPluginMcpServer(t);
+
+  sendMessage({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'test-client', version: '1.0.0' },
+    },
+  });
+  await readMessage();
+
+  sendMessage({
+    jsonrpc: '2.0',
+    method: 'notifications/initialized',
+    params: {},
+  });
+
+  sendMessage({
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: {
+      name: 'start_claude_import_onboarding',
+      arguments: {
+        claudeHome: fixture.claudeHome,
+        codexHome: fixture.codexHome,
+        trialCodexHome: join(fixture.root, 'trial', '.codex'),
+        project: fixture.projectDir,
+      },
+    },
+  });
+
+  const response = await readMessage();
+  const payload = response.result.structuredContent;
+
+  assert.equal(payload.title, 'We found your Claude Code setup');
+  assert.match(payload.summary, /safe preview/i);
+  assert.equal(payload.nextAction.tool, 'preview_claude_import');
+  assert.ok(payload.whatChangesInCodex.some(line => /approval|sandbox/i.test(line)));
+});
+
+test('finish onboarding tool refuses live import until a preview exists', async (t) => {
+  const fixture = createFixture();
+  cleanupFixture(t, fixture);
+
+  const { sendMessage, readMessage } = startPluginMcpServer(t);
+
+  sendMessage({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'test-client', version: '1.0.0' },
+    },
+  });
+  await readMessage();
+
+  sendMessage({
+    jsonrpc: '2.0',
+    method: 'notifications/initialized',
+    params: {},
+  });
+
+  sendMessage({
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: {
+      name: 'finish_claude_import',
+      arguments: {
+        claudeHome: fixture.claudeHome,
+        codexHome: fixture.codexHome,
+        trialCodexHome: join(fixture.root, 'trial', '.codex'),
+        project: fixture.projectDir,
+      },
+    },
+  });
+
+  const response = await readMessage();
+  const payload = response.result.structuredContent;
+
+  assert.equal(payload.title, 'Preview the import first');
+  assert.equal(payload.nextAction.tool, 'preview_claude_import');
 });
 
 test('apply --global writes only global outputs and leaves project instructions untouched', (t) => {
