@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join, relative } from 'path';
 import { homedir } from 'os';
+import { fileURLToPath } from 'url';
 
 export const MIGRATION_PLUGIN_NAME = 'cc2codex-migration-assistant';
 
@@ -9,7 +10,7 @@ function ensureDir(dirPath) {
 }
 
 function repoRootFromModule() {
-  return dirname(dirname(new URL(import.meta.url).pathname));
+  return dirname(dirname(fileURLToPath(import.meta.url)));
 }
 
 export function pluginSourceDir(repoRoot = repoRootFromModule()) {
