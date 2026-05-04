@@ -18,7 +18,13 @@ function scanSkillsDir(skillsDir, target, warnings, scopeLabel) {
   const items = readdirSync(skillsDir);
   for (const item of items) {
     const fullPath = join(skillsDir, item);
-    const stat = statSync(fullPath);
+    let stat;
+    try {
+      stat = statSync(fullPath);
+    } catch (err) {
+      warnings.push(`${scopeLabel} skill path "${fullPath}" could not be read (${err.code || err.message})`);
+      continue;
+    }
     if (stat.isFile() && item.endsWith('.md')) {
       target.push({
         name: basename(item, '.md'),
