@@ -49,7 +49,15 @@ function relativePluginPath(targetDir, marketplacePath) {
     return './';
   }
 
-  return raw.startsWith('.') ? raw : `./${raw}`;
+  if (raw.startsWith('./') || raw.startsWith('.\\')) {
+    return raw;
+  }
+
+  if (raw.startsWith('..')) {
+    return `./${raw}`;
+  }
+
+  return `./${raw}`;
 }
 
 export function installMigrationPlugin(opts = {}) {
