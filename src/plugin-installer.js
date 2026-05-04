@@ -35,6 +35,7 @@ function buildInstalledMcpConfig({ repoRoot, targetDir }) {
       'cc2codex-migration-assistant': {
         command: 'node',
         args: [join(targetDir, 'scripts', 'mcp-server.js')],
+        startup_timeout_sec: 120,
         env: {
           CC2CODEX_REPO_ROOT: repoRoot,
         },
