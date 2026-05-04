@@ -57,8 +57,14 @@ codex
 /plugins
 ```
 
-6. Enable `Claude to Codex Migration Assistant`.
-7. Start a new thread and paste this:
+6. If you don't see the plugin in `/plugins`, add your personal marketplace root (one-time) and restart Codex:
+
+```bash
+codex plugin marketplace add ~
+```
+
+7. Enable `Claude to Codex Migration Assistant`.
+8. Start a new thread and paste this:
 
 ```text
 Help me bring my Claude Code setup into Codex.
@@ -132,6 +138,12 @@ Then inside Codex CLI:
 
 ```text
 /plugins
+```
+
+If the plugin still doesn't appear, add the personal marketplace root (one-time) and restart Codex:
+
+```bash
+codex plugin marketplace add ~
 ```
 
 ### Codex says it cannot find your Claude setup
