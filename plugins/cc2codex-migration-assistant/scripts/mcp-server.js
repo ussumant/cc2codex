@@ -818,26 +818,33 @@ process.stdin.on('data', async (chunk) => {
   pending = Buffer.concat([pending, chunk]);
 
   while (true) {
-    const headerEnd = pending.indexOf('\r\n\r\n');
+    // Some MCP clients use CRLF framing, others use LF-only framing.
+    // Accept both to avoid startup hangs/timeouts.
+    let headerEnd = pending.indexOf('\r\n\r\n');
+    let headerSepLen = 4;
+    if (headerEnd === -1) {
+      headerEnd = pending.indexOf('\n\n');
+      headerSepLen = 2;
+    }
     if (headerEnd === -1) break;
 
     const headerText = pending.slice(0, headerEnd).toString('utf-8');
     const contentLengthHeader = headerText
-      .split('\r\n')
+      .split(/\r?\n/)
       .find((line) => line.toLowerCase().startsWith('content-length:'));
 
     if (!contentLengthHeader) {
-      pending = pending.slice(headerEnd + 4);
+      pending = pending.slice(headerEnd + headerSepLen);
       continue;
     }
 
     const contentLength = Number.parseInt(contentLengthHeader.split(':')[1].trim(), 10);
-    const messageEnd = headerEnd + 4 + contentLength;
+    const messageEnd = headerEnd + headerSepLen + contentLength;
     if (Number.isNaN(contentLength) || pending.length < messageEnd) {
       break;
     }
 
-    const body = pending.slice(headerEnd + 4, messageEnd).toString('utf-8');
+    const body = pending.slice(headerEnd + headerSepLen, messageEnd).toString('utf-8');
     pending = pending.slice(messageEnd);
 
     let request;
