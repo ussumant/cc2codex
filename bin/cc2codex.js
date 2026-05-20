@@ -533,7 +533,11 @@ function printPluginInstallResult(result) {
   console.log('');
   console.log(chalk.bold('Next in Codex:'));
   console.log('  1. Restart the Codex app');
-  console.log('  2. Open /plugins and enable "Claude to Codex Migration Assistant"');
+  console.log('  2. Open /plugins');
+  console.log('     - If it is not listed, add this marketplace in "Add Marketplace":');
+  const marketplaceFileUrl = `file:///${String(result.marketplacePath).replace(/\\/g, '/')}`;
+  console.log(`       ${chalk.cyan(marketplaceFileUrl)}`);
+  console.log('     - Then enable "Claude to Codex Migration Assistant"');
   console.log('  3. Ask Codex to use the plugin tools to assess or import your Claude setup');
   console.log('');
 }
